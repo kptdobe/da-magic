@@ -109,7 +109,11 @@ read_s3_document() {
         
         # Get object metadata
         print_status "Getting document metadata..."
-        aws s3api head-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" --query '{Size:ContentLength,Type:ContentType,LastModified:LastModified}' --output json
+        echo ""
+        echo "=== Document Metadata ==="
+        aws s3api head-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" --output json
+        echo ""
+        echo "=== End of Metadata ==="
         
         # Determine if we should display or download based on content type
         local content_type=$(aws s3api head-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" --query 'ContentType' --output text)
