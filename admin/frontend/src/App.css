@@ -217,6 +217,33 @@
   gap: 20px;
 }
 
+.version-path-section {
+  border-bottom: 1px solid #eee;
+  padding-bottom: 15px;
+}
+
+.version-path-section h3 {
+  margin: 0 0 10px 0;
+  color: #282c34;
+  font-size: 16px;
+}
+
+.version-path {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 10px;
+  word-break: break-all;
+}
+
+.version-path code {
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: #495057;
+  background: none;
+  padding: 0;
+}
+
 .metadata-section h3,
 .content-section h3 {
   margin: 0 0 15px 0;

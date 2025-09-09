@@ -16,9 +16,10 @@ interface DocumentData {
 
 interface DocumentViewerProps {
   document: DocumentData;
+  versionPath?: string; // Optional version path for display
 }
 
-const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
+const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }) => {
   const { metadata, content, isTextContent, contentType } = document;
 
   const renderContent = () => {
@@ -116,6 +117,14 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document }) => {
 
   return (
     <div className="document-viewer">
+      {versionPath && (
+        <div className="version-path-section">
+          <h3>Version Path</h3>
+          <div className="version-path">
+            <code>{versionPath}</code>
+          </div>
+        </div>
+      )}
       <div className="metadata-section">
         <h3>Metadata</h3>
         <div className="metadata-grid">

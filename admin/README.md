@@ -112,7 +112,7 @@ npm start
 ## Usage
 
 1. Open your browser and go to `http://localhost:9090`
-2. Enter a document path (e.g., `kptdobe/daplayground/version/test.html`)
+2. Enter a document path (e.g., `owner/repo/path/test.html`)
 3. Click "Load Document" to fetch the document and its versions
 4. View the document content and metadata
 5. Browse through versions and click "Preview" to view any version

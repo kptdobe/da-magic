@@ -42,7 +42,7 @@ show_usage() {
     echo "  bucket-name    Name of the S3 bucket (optional, defaults to 'aem-content')"
     echo ""
     echo "Examples:"
-    echo "  $0 kptdobe/daplayground/version/test.html"
+    echo "  $0 owner/repo/path/test.html"
     echo "  $0 folder/file.txt"
     echo "  $0 config/settings.json aem-content"
     echo ""

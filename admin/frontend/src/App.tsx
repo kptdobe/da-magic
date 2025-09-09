@@ -33,6 +33,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<DocumentData | null>(null);
+  const [selectedVersionPath, setSelectedVersionPath] = useState<string | null>(null);
 
   // Load document path from localStorage on component mount
   useEffect(() => {
@@ -62,11 +63,11 @@ function App() {
       try {
         const url = new URL(path);
         
-        // Handle hash-based paths (e.g., https://da.live/edit#/kptdobe/daplayground/version/test.html)
+        // Handle hash-based paths (e.g., https://da.live/edit#/owner/repo/path/test.html)
         if (url.hash && url.hash.startsWith('#/')) {
           path = url.hash.substring(2); // Remove '#/'
         }
-        // Handle path-based URLs (e.g., https://admin.da.live/source/kptdobe/daplayground/version/test.html)
+        // Handle path-based URLs (e.g., https://admin.da.live/source/owner/repo/path/test.html)
         else if (url.pathname.startsWith('/source/')) {
           path = url.pathname.substring(8); // Remove '/source/'
         }
@@ -106,6 +107,7 @@ function App() {
     setDocumentData(null);
     setVersions([]);
     setSelectedVersion(null);
+    setSelectedVersionPath(null);
 
     try {
       // Fetch document data using the extracted path
@@ -146,6 +148,7 @@ function App() {
       }
 
       setSelectedVersion(result);
+      setSelectedVersionPath(versionPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to preview version');
     }
@@ -164,7 +167,7 @@ function App() {
                 id="documentPath"
                 value={documentPath}
                 onChange={(e) => setDocumentPath(e.target.value)}
-                placeholder="e.g., kptdobe/daplayground/version/test.html or https://da.live/edit#/kptdobe/daplayground/version/test.html"
+                placeholder="e.g., owner/repo/path/test.html or https://da.live/edit#/owner/repo/path/test.html"
                 required
               />
               {documentPath && (
@@ -226,7 +229,7 @@ function App() {
             <div className="version-preview-section">
               <h2>Version Preview</h2>
               {selectedVersion ? (
-                <DocumentViewer document={selectedVersion} />
+                <DocumentViewer document={selectedVersion} versionPath={selectedVersionPath || undefined} />
               ) : (
                 <div className="no-selection">
                   <p>Click "Preview" on any version to view its content here.</p>
