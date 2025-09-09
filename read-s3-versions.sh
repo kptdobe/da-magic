@@ -180,7 +180,7 @@ list_version_files() {
             local date=$(echo "$line" | awk '{print $1}')
             local time=$(echo "$line" | awk '{print $2}')
             local size=$(echo "$line" | awk '{print $3}')
-            local filename=$(echo "$line" | awk '{print $4}' | sed "s|^$versions_path||")
+            local filename=$(echo "$line" | awk '{print $4}')
             
             # Format size in human readable format
             local size_human=""
@@ -198,7 +198,10 @@ list_version_files() {
                 size_human="$size"
             fi
             
-            printf "%-30s %-10s %s %s\n" "$filename" "$size_human" "$date" "$time"
+            # Construct the full path by combining versions_path with filename
+            local display_path="/$versions_path$filename"
+            
+            printf "%-60s %-10s %s %s\n" "$display_path" "$size_human" "$date" "$time"
         fi
     done
     
