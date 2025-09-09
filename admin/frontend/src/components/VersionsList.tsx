@@ -1,0 +1,52 @@
+import React from 'react';
+
+interface Version {
+  key: string;
+  path: string;
+  filename: string;
+  size: number;
+  sizeFormatted: string;
+  lastModified: string;
+}
+
+interface VersionsListProps {
+  versions: Version[];
+  onVersionPreview: (versionPath: string) => void;
+}
+
+const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview }) => {
+  return (
+    <div className="versions-list">
+      <div className="versions-header">
+        <div className="version-filename">Filename</div>
+        <div className="version-size">Size</div>
+        <div className="version-date">Last Modified</div>
+        <div className="version-actions">Actions</div>
+      </div>
+      
+      {versions.map((version) => (
+        <div key={version.key} className="version-item">
+          <div className="version-filename" title={version.path}>
+            {version.filename}
+          </div>
+          <div className="version-size">
+            {version.sizeFormatted}
+          </div>
+          <div className="version-date">
+            {new Date(version.lastModified).toLocaleString()}
+          </div>
+          <div className="version-actions">
+            <button 
+              onClick={() => onVersionPreview(version.key)}
+              className="preview-button"
+            >
+              Preview
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+export default VersionsList;

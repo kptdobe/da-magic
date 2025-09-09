@@ -4,3 +4,4 @@
 .env.production.local
 .env.local
 .dev.vars
+node_modules

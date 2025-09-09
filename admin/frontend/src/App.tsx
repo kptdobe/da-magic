@@ -1,0 +1,243 @@
+import React, { useState, useEffect } from 'react';
+import './App.css';
+import DocumentViewer from './components/DocumentViewer';
+import VersionsList from './components/VersionsList';
+
+interface DocumentData {
+  metadata: {
+    contentLength: number;
+    contentType: string;
+    originalContentType?: string; // Only present for version previews
+    lastModified: string;
+    etag: string;
+    metadata: Record<string, string>;
+  };
+  content: string;
+  isTextContent: boolean;
+  contentType: string;
+}
+
+interface Version {
+  key: string;
+  path: string;
+  filename: string;
+  size: number;
+  sizeFormatted: string;
+  lastModified: string;
+}
+
+function App() {
+  const [documentPath, setDocumentPath] = useState('');
+  const [documentData, setDocumentData] = useState<DocumentData | null>(null);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState<DocumentData | null>(null);
+
+  // Load document path from localStorage on component mount
+  useEffect(() => {
+    const savedPath = localStorage.getItem('s3-document-path');
+    if (savedPath) {
+      setDocumentPath(savedPath);
+    }
+  }, []);
+
+  // Save document path to localStorage whenever it changes
+  useEffect(() => {
+    if (documentPath) {
+      localStorage.setItem('s3-document-path', documentPath);
+    } else {
+      localStorage.removeItem('s3-document-path');
+    }
+  }, [documentPath]);
+
+  // Function to extract document path from various URL formats
+  const extractDocumentPath = (input: string): string => {
+    if (!input.trim()) return '';
+
+    let path = input.trim();
+
+    // Handle full URLs
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      try {
+        const url = new URL(path);
+        
+        // Handle hash-based paths (e.g., https://da.live/edit#/kptdobe/daplayground/version/test.html)
+        if (url.hash && url.hash.startsWith('#/')) {
+          path = url.hash.substring(2); // Remove '#/'
+        }
+        // Handle path-based URLs (e.g., https://admin.da.live/source/kptdobe/daplayground/version/test.html)
+        else if (url.pathname.startsWith('/source/')) {
+          path = url.pathname.substring(8); // Remove '/source/'
+        }
+        // Handle other URL paths
+        else {
+          path = url.pathname;
+        }
+      } catch (e) {
+        // If URL parsing fails, treat as regular path
+        console.warn('Failed to parse URL, treating as path:', e);
+      }
+    }
+
+    // Remove leading slash if present
+    path = path.replace(/^\/+/, '');
+
+    // Convert to lowercase (as per backend requirement)
+    path = path.toLowerCase();
+
+    return path;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!documentPath.trim()) return;
+
+    // Extract the actual document path from various URL formats
+    const extractedPath = extractDocumentPath(documentPath);
+    
+    if (!extractedPath) {
+      setError('Invalid document path format');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setDocumentData(null);
+    setVersions([]);
+    setSelectedVersion(null);
+
+    try {
+      // Fetch document data using the extracted path
+      const docResponse = await fetch(`/api/document/${encodeURIComponent(extractedPath)}`);
+      const docResult = await docResponse.json();
+
+      if (!docResult.success) {
+        throw new Error(docResult.error || 'Failed to fetch document');
+      }
+
+      setDocumentData(docResult);
+
+      // Fetch versions using the extracted path
+      const versionsResponse = await fetch(`/api/versions/${encodeURIComponent(extractedPath)}`);
+      const versionsResult = await versionsResponse.json();
+
+      if (versionsResult.success) {
+        setVersions(versionsResult.versions);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVersionPreview = async (versionPath: string) => {
+    try {
+      // Pass the original document's content type as a query parameter
+      const originalContentType = documentData?.contentType || '';
+      const url = `/api/version/${encodeURIComponent(versionPath)}?originalContentType=${encodeURIComponent(originalContentType)}`;
+      
+      const response = await fetch(url);
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch version');
+      }
+
+      setSelectedVersion(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to preview version');
+    }
+  };
+
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>S3 Document Admin</h1>
+        <form onSubmit={handleSubmit} className="document-form">
+          <div className="form-group">
+            <label htmlFor="documentPath">Document Path:</label>
+            <div className="input-container">
+              <input
+                type="text"
+                id="documentPath"
+                value={documentPath}
+                onChange={(e) => setDocumentPath(e.target.value)}
+                placeholder="e.g., kptdobe/daplayground/version/test.html or https://da.live/edit#/kptdobe/daplayground/version/test.html"
+                required
+              />
+              {documentPath && (
+                <button
+                  type="button"
+                  onClick={() => setDocumentPath('')}
+                  className="clear-button"
+                  title="Clear saved path"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            {localStorage.getItem('s3-document-path') && (
+              <small className="persistence-indicator">
+                💾 Path saved locally
+              </small>
+            )}
+            {documentPath && extractDocumentPath(documentPath) !== documentPath && (
+              <small className="path-extraction-indicator">
+                🔍 Will use: <code>{extractDocumentPath(documentPath)}</code>
+              </small>
+            )}
+            <small className="extension-reminder">
+              ⚠️ File extension (.html, .json, etc.) must be included in the path
+            </small>
+          </div>
+          <button type="submit" disabled={loading}>
+            {loading ? 'Loading...' : 'Load Document'}
+          </button>
+        </form>
+      </header>
+
+      <main className="App-main">
+        {error && (
+          <div className="error-message">
+            <h3>Error:</h3>
+            <p>{error}</p>
+          </div>
+        )}
+
+        {documentData && (
+          <div className="document-section">
+            <h2>Document</h2>
+            <DocumentViewer document={documentData} />
+          </div>
+        )}
+
+        {versions.length > 0 && (
+          <div className="versions-container">
+            <div className="versions-section">
+              <h2>Versions ({versions.length})</h2>
+              <VersionsList 
+                versions={versions} 
+                onVersionPreview={handleVersionPreview}
+              />
+            </div>
+            
+            <div className="version-preview-section">
+              <h2>Version Preview</h2>
+              {selectedVersion ? (
+                <DocumentViewer document={selectedVersion} />
+              ) : (
+                <div className="no-selection">
+                  <p>Click "Preview" on any version to view its content here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default App;
