@@ -63,8 +63,22 @@ function App() {
       try {
         const url = new URL(path);
         
+        // Handle AEM URLs (e.g., https://main--repo--owner.aem.page/a/b/c or https://main--repo--owner.aem.live/a/b/c)
+        if (url.hostname.includes('.aem.page') || url.hostname.includes('.aem.live')) {
+          // Extract owner and repo from hostname (format: main--repo--owner.aem.page)
+          const hostParts = url.hostname.split('.')[0].split('--');
+          if (hostParts.length >= 3) {
+            const owner = hostParts[2]; // owner is the last part
+            const repo = hostParts[1];  // repo is the middle part
+            const urlPath = url.pathname.replace(/^\/+/, ''); // Remove leading slashes
+            path = `${owner}/${repo}/${urlPath}`;
+          } else {
+            // Fallback to treating as regular path
+            path = url.pathname;
+          }
+        }
         // Handle hash-based paths (e.g., https://da.live/edit#/owner/repo/path/test.html)
-        if (url.hash && url.hash.startsWith('#/')) {
+        else if (url.hash && url.hash.startsWith('#/')) {
           path = url.hash.substring(2); // Remove '#/'
         }
         // Handle path-based URLs (e.g., https://admin.da.live/source/owner/repo/path/test.html)
@@ -86,6 +100,11 @@ function App() {
 
     // Convert to lowercase (as per backend requirement)
     path = path.toLowerCase();
+
+    // Add default .html extension if no extension is provided
+    if (path && !path.includes('.') && !path.endsWith('/')) {
+      path = path + '.html';
+    }
 
     return path;
   };
