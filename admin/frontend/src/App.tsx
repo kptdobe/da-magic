@@ -34,12 +34,24 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<DocumentData | null>(null);
   const [selectedVersionPath, setSelectedVersionPath] = useState<string | null>(null);
+  const [urlHistory, setUrlHistory] = useState<string[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
-  // Load document path from localStorage on component mount
+  // Load document path and URL history from localStorage on component mount
   useEffect(() => {
     const savedPath = localStorage.getItem('s3-document-path');
     if (savedPath) {
       setDocumentPath(savedPath);
+    }
+    
+    const savedHistory = localStorage.getItem('s3-url-history');
+    if (savedHistory) {
+      try {
+        const parsedHistory = JSON.parse(savedHistory);
+        setUrlHistory(parsedHistory);
+      } catch (e) {
+        console.warn('Failed to parse URL history from localStorage:', e);
+      }
     }
   }, []);
 
@@ -51,6 +63,38 @@ function App() {
       localStorage.removeItem('s3-document-path');
     }
   }, [documentPath]);
+
+  // Save URL history to localStorage whenever it changes
+  useEffect(() => {
+    if (urlHistory.length > 0) {
+      localStorage.setItem('s3-url-history', JSON.stringify(urlHistory));
+    }
+  }, [urlHistory]);
+
+  // Function to add URL to history
+  const addToHistory = (url: string) => {
+    if (!url.trim()) return;
+    
+    setUrlHistory(prevHistory => {
+      // Remove the URL if it already exists
+      const filteredHistory = prevHistory.filter(item => item !== url);
+      // Add to beginning and keep only last 10
+      return [url, ...filteredHistory].slice(0, 10);
+    });
+  };
+
+  // Function to select URL from history
+  const selectFromHistory = (url: string) => {
+    setDocumentPath(url);
+    setShowHistory(false);
+  };
+
+  // Function to clear history
+  const clearHistory = () => {
+    setUrlHistory([]);
+    setShowHistory(false);
+    localStorage.removeItem('s3-url-history');
+  };
 
   // Function to extract document path from various URL formats
   const extractDocumentPath = (input: string): string => {
@@ -112,6 +156,9 @@ function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!documentPath.trim()) return;
+
+    // Add to URL history
+    addToHistory(documentPath);
 
     // Extract the actual document path from various URL formats
     const extractedPath = extractDocumentPath(documentPath);
@@ -186,9 +233,47 @@ function App() {
                 id="documentPath"
                 value={documentPath}
                 onChange={(e) => setDocumentPath(e.target.value)}
+                onFocus={() => setShowHistory(true)}
+                onBlur={() => setTimeout(() => setShowHistory(false), 200)}
                 placeholder="e.g., owner/repo/path/test.html or https://da.live/edit#/owner/repo/path/test.html"
                 required
               />
+              {urlHistory.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="history-toggle"
+                  title="Show URL history"
+                >
+                  📋
+                </button>
+              )}
+              {showHistory && urlHistory.length > 0 && (
+                <div className="history-dropdown">
+                  <div className="history-header">
+                    <span>Recent URLs</span>
+                    <button
+                      type="button"
+                      onClick={clearHistory}
+                      className="clear-history-btn"
+                      title="Clear history"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="history-list">
+                    {urlHistory.map((url, index) => (
+                      <div
+                        key={index}
+                        className="history-item"
+                        onClick={() => selectFromHistory(url)}
+                      >
+                        {url}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             {localStorage.getItem('s3-document-path') && (
               <small className="persistence-indicator">
