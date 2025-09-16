@@ -189,16 +189,6 @@ function App() {
                 placeholder="e.g., owner/repo/path/test.html or https://da.live/edit#/owner/repo/path/test.html"
                 required
               />
-              {documentPath && (
-                <button
-                  type="button"
-                  onClick={() => setDocumentPath('')}
-                  className="clear-button"
-                  title="Clear saved path"
-                >
-                  ✕
-                </button>
-              )}
             </div>
             {localStorage.getItem('s3-document-path') && (
               <small className="persistence-indicator">
