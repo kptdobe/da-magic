@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface DocumentData {
   metadata: {
@@ -21,6 +21,117 @@ interface DocumentViewerProps {
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }) => {
   const { metadata, content, isTextContent, contentType } = document;
+  const [indentHtml, setIndentHtml] = useState(false);
+
+  // HTML formatting function
+  const formatHtml = (html: string): string => {
+    if (!indentHtml) return html;
+    
+    // Split HTML into tokens (tags and text)
+    const tokens = html.match(/<[^>]*>|[^<]+/g) || [];
+    const lines: string[] = [];
+    let indentLevel = 0;
+    const indentSize = 2;
+    let i = 0;
+    
+    while (i < tokens.length) {
+      const token = tokens[i].trim();
+      if (!token) {
+        i++;
+        continue;
+      }
+      
+      // Handle opening tags
+      if (token.startsWith('<') && !token.startsWith('</') && !token.endsWith('/>')) {
+        const tagName = token.match(/<(\w+)/)?.[1];
+        const currentIndent = ' '.repeat(indentLevel * indentSize);
+        
+        // Check if this is an empty tag (opening tag followed immediately by closing tag)
+        if (i + 1 < tokens.length) {
+          const nextToken = tokens[i + 1].trim();
+          if (nextToken === `</${tagName}>`) {
+            // Empty tag - keep on same line
+            lines.push(currentIndent + token + nextToken);
+            i += 2; // Skip both opening and closing tags
+            continue;
+          }
+        }
+        
+        // Regular opening tag - collect all content until closing tag
+        let content = token;
+        let j = i + 1;
+        let foundClosingTag = false;
+        
+        // Look ahead to collect all content until the matching closing tag
+        while (j < tokens.length) {
+          const nextToken = tokens[j].trim();
+          
+          if (nextToken === `</${tagName}>`) {
+            // Found closing tag - add it and break
+            content += nextToken;
+            foundClosingTag = true;
+            break;
+          } else if (nextToken.startsWith('<') && !nextToken.startsWith('</') && !nextToken.endsWith('/>')) {
+            // Found nested opening tag - this is complex content, break and handle normally
+            break;
+          } else if (nextToken.endsWith('/>')) {
+            // Found self-closing tag - add it to content
+            content += nextToken;
+          } else {
+            // Add text content
+            content += nextToken;
+          }
+          j++;
+        }
+        
+        if (foundClosingTag) {
+          // Simple content - keep on one line
+          lines.push(currentIndent + content);
+          i = j + 1;
+        } else {
+          // Complex content - handle normally
+          lines.push(currentIndent + token);
+          indentLevel++;
+          i++;
+        }
+      }
+      // Handle closing tags
+      else if (token.startsWith('</')) {
+        indentLevel = Math.max(0, indentLevel - 1);
+        lines.push(' '.repeat(indentLevel * indentSize) + token);
+        i++;
+      }
+      // Handle self-closing tags
+      else if (token.endsWith('/>')) {
+        lines.push(' '.repeat(indentLevel * indentSize) + token);
+        i++;
+      }
+      // Handle text content - keep it with its parent tag
+      else {
+        const text = token.replace(/\s+/g, ' ').trim();
+        if (text) {
+          // Check if there's a previous line and it's an opening tag
+          if (lines.length > 0) {
+            const lastLine = lines[lines.length - 1];
+            const lastLineTrimmed = lastLine.trim();
+            
+            // If last line is an opening tag, append text to it
+            if (lastLineTrimmed.startsWith('<') && !lastLineTrimmed.startsWith('</') && !lastLineTrimmed.endsWith('/>')) {
+              lines[lines.length - 1] = lastLine + text;
+            } else {
+              // Otherwise, add as new line
+              lines.push(' '.repeat(indentLevel * indentSize) + text);
+            }
+          } else {
+            lines.push(' '.repeat(indentLevel * indentSize) + text);
+          }
+        }
+        i++;
+      }
+    }
+    
+    return lines.join('\n');
+  };
 
   const renderContent = () => {
     if (!isTextContent) {
@@ -67,43 +178,17 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
     }
 
     if (contentType === 'text/html' || contentType === 'application/xml') {
-      // Format HTML with proper indentation
-      const formatHtml = (html: string): string => {
-        // Basic HTML formatting with indentation
-        let formatted = html
-          .replace(/></g, '>\n<') // Add newlines between tags
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0)
-          .join('\n');
-        
-        // Add indentation
-        let indentLevel = 0;
-        const indentSize = 2;
-        const lines = formatted.split('\n');
-        const indentedLines = lines.map(line => {
-          const trimmed = line.trim();
-          
-          // Decrease indent for closing tags
-          if (trimmed.startsWith('</')) {
-            indentLevel = Math.max(0, indentLevel - 1);
-          }
-          
-          const indented = ' '.repeat(indentLevel * indentSize) + trimmed;
-          
-          // Increase indent for opening tags (but not self-closing tags)
-          if (trimmed.startsWith('<') && !trimmed.startsWith('</') && !trimmed.endsWith('/>')) {
-            indentLevel++;
-          }
-          
-          return indented;
-        });
-        
-        return indentedLines.join('\n');
-      };
-
       return (
         <div className="html-content">
+          <div className="html-controls">
+            <button
+              onClick={() => setIndentHtml(!indentHtml)}
+              className={`indent-toggle ${indentHtml ? 'active' : ''}`}
+              title={indentHtml ? 'Disable indentation' : 'Enable indentation'}
+            >
+              {indentHtml ? '📐 Raw' : '📐 Indent'}
+            </button>
+          </div>
           <pre className="html-source">
             {formatHtml(content)}
           </pre>

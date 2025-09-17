@@ -293,6 +293,41 @@
   overflow: hidden;
 }
 
+.html-controls {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.indent-toggle {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.indent-toggle:hover {
+  background-color: #5a6268;
+}
+
+.indent-toggle.active {
+  background-color: #61dafb;
+  color: #282c34;
+}
+
+.indent-toggle.active:hover {
+  background-color: #21a0c4;
+}
+
 .html-source {
   background-color: #f8f9fa;
   border: 1px solid #e9ecef;
