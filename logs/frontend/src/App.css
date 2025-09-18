@@ -345,6 +345,21 @@
   white-space: nowrap;
 }
 
+.log-column.message {
+  color: #495057;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.log-column.level {
+  font-weight: bold;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .log-entry {
   display: grid;
   grid-template-columns: 225px 1fr 80px 80px 120px;
@@ -357,6 +372,15 @@
 
 .log-entry:hover {
   background-color: #f8f9fa;
+}
+
+.expanded-entry {
+  border-left: 3px solid #007bff;
+  margin-left: 10px;
+}
+
+.expanded-entry:hover {
+  opacity: 0.8;
 }
 
 .log-entry.selected {

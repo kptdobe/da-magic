@@ -9,10 +9,13 @@ interface LogEntry {
   type: string;
   severity: string;
   applicationName: string;
+  message: string;
+  level: string;
   event: {
     userData: any;
     metadata: any;
     labels: any;
+    logEntry?: any;
   };
 }
 
@@ -34,10 +37,20 @@ const LogsViewer: React.FC<LogsViewerProps> = ({ logs }) => {
     const matchesSearch = !searchText || 
       JSON.stringify(log.event.userData).toLowerCase().includes(searchText.toLowerCase()) ||
       log.applicationName?.toLowerCase().includes(searchText.toLowerCase()) ||
-      log.type?.toLowerCase().includes(searchText.toLowerCase());
+      log.type?.toLowerCase().includes(searchText.toLowerCase()) ||
+      log.message?.toLowerCase().includes(searchText.toLowerCase()) ||
+      log.url?.toLowerCase().includes(searchText.toLowerCase());
     
     return matchesSeverity && matchesSearch;
   });
+  
+  // Debug: Log the number of logs and check for expanded entries
+  console.log('Total logs:', logs.length);
+  console.log('Expanded log entries:', logs.filter(log => log.id.includes('-log-')).length);
+  console.log('Filtered logs:', filteredLogs.length);
+  console.log('Filtered expanded entries:', filteredLogs.filter(log => log.id.includes('-log-')).length);
+  console.log('Severity filter:', filterSeverity);
+  console.log('Available severities:', severities);
 
   const formatTimestamp = (timestamp: string) => {
     // Parse UTC timestamp and convert to local timezone
@@ -65,6 +78,26 @@ const LogsViewer: React.FC<LogsViewerProps> = ({ logs }) => {
     if (statusNum >= 400 && statusNum < 500) return '#fd7e14'; // Orange for 4xx
     if (statusNum >= 500) return '#dc3545'; // Red for 5xx
     return '#6c757d'; // Gray for others
+  };
+
+  const getLevelColor = (level: string) => {
+    if (!level) return '#6c757d'; // Default gray for undefined/null
+    const levelUpper = level.toUpperCase();
+    if (levelUpper === 'ERROR') return '#dc3545'; // Red
+    if (levelUpper === 'WARN' || levelUpper === 'WARNING') return '#ffc107'; // Yellow
+    if (levelUpper === 'INFO' || levelUpper === 'LOG') return '#007bff'; // Blue
+    if (levelUpper === 'DEBUG') return '#6c757d'; // Gray
+    return '#6c757d'; // Default gray
+  };
+
+  const getLevelBackgroundColor = (level: string) => {
+    if (!level) return '#f8f9fa'; // Default light gray
+    const levelUpper = level.toUpperCase();
+    if (levelUpper === 'ERROR') return '#f8d7da'; // Light red
+    if (levelUpper === 'WARN' || levelUpper === 'WARNING') return '#fff3cd'; // Light yellow
+    if (levelUpper === 'INFO' || levelUpper === 'LOG') return '#d1ecf1'; // Light blue
+    if (levelUpper === 'DEBUG') return '#f8f9fa'; // Light gray
+    return '#f8f9fa'; // Default light gray
   };
 
 
@@ -124,38 +157,61 @@ const LogsViewer: React.FC<LogsViewerProps> = ({ logs }) => {
         <div className="logs-list">
                 <div className="logs-header">
                   <div className="log-column timestamp">Timestamp</div>
-                  <div className="log-column url">URL</div>
-                  <div className="log-column method">Method</div>
+                  <div className="log-column url">URL / Message</div>
+                  <div className="log-column method">Method / Level</div>
                   <div className="log-column status">Status</div>
                   <div className="log-column type">Type</div>
                 </div>
           
-          {filteredLogs.map((log, index) => (
+          {filteredLogs.map((log, index) => {
+            const isExpandedEntry = log.id.includes('-log-');
+            return (
             <div
               key={log.id || index}
-              className={`log-entry ${selectedLog?.id === log.id ? 'selected' : ''}`}
+              className={`log-entry ${isExpandedEntry ? 'expanded-entry' : ''} ${selectedLog?.id === log.id ? 'selected' : ''}`}
+              style={isExpandedEntry ? { backgroundColor: getLevelBackgroundColor(log.level) } : {}}
               onClick={() => setSelectedLog(log)}
             >
               <div className="log-column timestamp">
                 {formatTimestamp(log.timestamp)}
               </div>
-              <div className="log-column url" title={log.url}>
-                {log.url}
-              </div>
-              <div className="log-column method">
-                {log.method}
-              </div>
-              <div 
-                className="log-column status"
-                style={{ color: getStatusColor(log.status) }}
-              >
-                {log.status}
-              </div>
-              <div className="log-column type">
-                {log.type || 'N/A'}
-              </div>
+              {isExpandedEntry ? (
+                <>
+                  <div className="log-column message" title={log.message || 'No message'}>
+                    {log.message || 'No message'}
+                  </div>
+                  <div 
+                    className="log-column level"
+                    style={{ color: getLevelColor(log.level) }}
+                  >
+                    {log.level || 'N/A'}
+                  </div>
+                  <div className="log-column type">
+                    {log.type || 'N/A'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="log-column url" title={log.url}>
+                    {log.url}
+                  </div>
+                  <div className="log-column method">
+                    {log.method}
+                  </div>
+                  <div 
+                    className="log-column status"
+                    style={{ color: getStatusColor(log.status) }}
+                  >
+                    {log.status}
+                  </div>
+                  <div className="log-column type">
+                    {log.type || 'N/A'}
+                  </div>
+                </>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {selectedLog && (
@@ -177,9 +233,9 @@ const LogsViewer: React.FC<LogsViewerProps> = ({ logs }) => {
                   <div className="detail-item">
                     <strong>Timestamp:</strong> {formatTimestamp(selectedLog.timestamp)}
                   </div>
-            <div className="detail-item">
-              <strong>Type:</strong> {selectedLog.type || 'N/A'}
-            </div>
+                  <div className="detail-item">
+                    <strong>Type:</strong> {selectedLog.type || 'N/A'}
+                  </div>
                   <div className="detail-item">
                     <strong>URL:</strong> {selectedLog.url}
                   </div>
@@ -192,13 +248,26 @@ const LogsViewer: React.FC<LogsViewerProps> = ({ logs }) => {
                       {selectedLog.status}
                     </span>
                   </div>
+                  {selectedLog.message && (
+                    <div className="detail-item">
+                      <strong>Message:</strong> {selectedLog.message}
+                    </div>
+                  )}
+                  {selectedLog.level && (
+                    <div className="detail-item">
+                      <strong>Level:</strong> 
+                      <span style={{ color: getLevelColor(selectedLog.level) }}>
+                        {selectedLog.level}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               
         <div className="detail-section">
           <h4>Log Message</h4>
           <pre className="log-message">
-            {formatLogText(JSON.stringify(selectedLog.event.userData))}
+            {selectedLog.message || 'No message available'}
           </pre>
         </div>
               

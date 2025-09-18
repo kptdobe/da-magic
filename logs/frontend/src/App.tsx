@@ -11,10 +11,13 @@ interface LogEntry {
   type: string;
   severity: string;
   applicationName: string;
+  message: string;
+  level: string;
   event: {
     userData: any;
     metadata: any;
     labels: any;
+    logEntry?: any;
   };
 }
 
@@ -164,6 +167,10 @@ function App() {
       if (!result.success) {
         throw new Error(result.error || 'Failed to search logs');
       }
+
+      console.log('API Response - Total logs:', result.logs.length);
+      console.log('API Response - Expanded entries:', result.logs.filter((log: any) => log.id.includes('-log-')).length);
+      console.log('Sample expanded entry:', result.logs.find((log: any) => log.id.includes('-log-')));
 
       setLogs(result.logs);
       setTotal(result.total);

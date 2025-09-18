@@ -210,7 +210,7 @@ const searchCoralogixLogs = async (searchPath, timeRange = '1h', offset = 0, lim
                     status = userData.Event?.Response?.Status || 'N/A';
                   }
                   
-                  // Create clean response object
+                  // Always create the main log entry first
                   logs.push({
                     id: metadata.logid || Math.random().toString(36),
                     timestamp: metadata.timestamp || new Date().toISOString(),
@@ -220,12 +220,47 @@ const searchCoralogixLogs = async (searchPath, timeRange = '1h', offset = 0, lim
                     type: logType,
                     severity: metadata.severity || 'INFO',
                     applicationName: labels.applicationname || 'unknown',
+                    message: userData.message || userData.text || '',
+                    level: metadata.severity || 'INFO',
                     event: {
                       userData: userData,
                       metadata: metadata,
                       labels: labels
                     }
                   });
+
+                  // If userData has a Logs array, create additional entries for each log
+                  if (userData.Logs && Array.isArray(userData.Logs) && userData.Logs.length > 0) {
+                    userData.Logs.forEach((logEntry, logIndex) => {
+                      // Handle different log entry formats
+                      const logLevel = logEntry.Level || logEntry.level || 'INFO';
+                      const logMessage = Array.isArray(logEntry.Message) 
+                        ? logEntry.Message.join(' ') 
+                        : logEntry.Message || logEntry.message || logEntry.text || '';
+                      const logTimestamp = logEntry.TimestampMs 
+                        ? new Date(logEntry.TimestampMs).toISOString()
+                        : logEntry.timestamp || metadata.timestamp || new Date().toISOString();
+                      
+                      logs.push({
+                        id: `${metadata.logid || Math.random().toString(36)}-log-${logIndex}`,
+                        timestamp: logTimestamp,
+                        url: url, // Keep the same URL as the parent
+                        method: method, // Keep the same method as the parent
+                        status: status, // Keep the same status as the parent
+                        type: logType, // Keep the same type as the parent
+                        severity: logLevel,
+                        applicationName: labels.applicationname || 'unknown',
+                        message: logMessage,
+                        level: logLevel,
+                        event: {
+                          userData: userData,
+                          metadata: metadata,
+                          labels: labels,
+                          logEntry: logEntry
+                        }
+                      });
+                    });
+                  }
             }
           }
         } catch (e) {
@@ -233,6 +268,40 @@ const searchCoralogixLogs = async (searchPath, timeRange = '1h', offset = 0, lim
         }
       }
     }
+
+    // Group logs by parent ID and sort chronologically within groups
+    const groupedLogs = [];
+    const parentLogs = logs.filter(log => !log.id.includes('-log-'));
+    const expandedLogs = logs.filter(log => log.id.includes('-log-'));
+    
+    // Sort parent logs chronologically
+    parentLogs.sort((a, b) => {
+      const timestampA = new Date(a.timestamp).getTime();
+      const timestampB = new Date(b.timestamp).getTime();
+      return timestampA - timestampB;
+    });
+    
+    // For each parent log, add it and its expanded entries
+    parentLogs.forEach(parentLog => {
+      // Add the parent log
+      groupedLogs.push(parentLog);
+      
+      // Find and add its expanded entries, sorted by timestamp
+      const parentId = parentLog.id;
+      const childLogs = expandedLogs
+        .filter(log => log.id.startsWith(parentId + '-log-'))
+        .sort((a, b) => {
+          const timestampA = new Date(a.timestamp).getTime();
+          const timestampB = new Date(b.timestamp).getTime();
+          return timestampA - timestampB;
+        });
+      
+      groupedLogs.push(...childLogs);
+    });
+    
+    // Replace the original logs array with the grouped and sorted logs
+    logs.length = 0;
+    logs.push(...groupedLogs);
 
     return {
       logs: logs,
