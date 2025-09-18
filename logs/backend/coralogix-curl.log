@@ -187,3 +187,9 @@ curl -H "Authorization: Bearer cxup_ageAhhmXjvvziA7AU3by9jYeiRk1I7" -H "Content-
 
 2025-09-18T11:34:01.673Z
 curl -H "Authorization: Bearer cxup_ageAhhmXjvvziA7AU3by9jYeiRk1I7" -H "Content-Type: application/json" -X POST https://api.eu1.coralogix.com/api/v1/dataprime/query -d '{"query":"source logs | filter Event.Request.URL.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') || ClientRequestPath.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') | limit 1000","metadata":{"startDate":"2025-09-17T11:34:01.673Z","endDate":"2025-09-18T11:34:01.673Z"}}'
+
+2025-09-18T11:41:11.769Z
+curl -H "Authorization: Bearer cxup_ageAhhmXjvvziA7AU3by9jYeiRk1I7" -H "Content-Type: application/json" -X POST https://api.eu1.coralogix.com/api/v1/dataprime/query -d '{"query":"source logs | filter Event.Request.URL.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') || ClientRequestPath.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') | limit 1000","metadata":{"startDate":"2025-09-18T10:41:11.769Z","endDate":"2025-09-18T11:41:11.769Z"}}'
+
+2025-09-18T11:41:19.291Z
+curl -H "Authorization: Bearer cxup_ageAhhmXjvvziA7AU3by9jYeiRk1I7" -H "Content-Type: application/json" -X POST https://api.eu1.coralogix.com/api/v1/dataprime/query -d '{"query":"source logs | filter Event.Request.URL.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') || ClientRequestPath.contains('\''diconium/contitech/global/en/products-solutions/interior-exterior-surfaces/exterior/exterior-films'\'') | limit 1000","metadata":{"startDate":"2025-09-17T11:41:19.291Z","endDate":"2025-09-18T11:41:19.291Z"}}'
