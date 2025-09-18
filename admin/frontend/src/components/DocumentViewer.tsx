@@ -212,36 +212,40 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
       )}
       <div className="metadata-section">
         <h3>Metadata</h3>
-        <div className="metadata-grid">
-          <div className="metadata-item">
-            <strong>Content Type:</strong> {metadata.contentType}
-            {metadata.originalContentType && metadata.originalContentType !== metadata.contentType && (
-              <div className="content-type-note">
-                <small>
-                  <strong>Note:</strong> Using original document content type for rendering: <code>{metadata.originalContentType}</code>
-                </small>
-              </div>
-            )}
-          </div>
-          <div className="metadata-item">
-            <strong>Size:</strong> {metadata.contentLength} bytes
-          </div>
-          <div className="metadata-item">
-            <strong>Last Modified:</strong> {new Date(metadata.lastModified).toLocaleString()}
-          </div>
-          <div className="metadata-item">
-            <strong>ETag:</strong> {metadata.etag}
+        <div className="metadata-two-column">
+          <div className="metadata-left-column">
+            <div className="metadata-item">
+              <strong>Content Type:</strong> {metadata.contentType}
+              {metadata.originalContentType && metadata.originalContentType !== metadata.contentType && (
+                <div className="content-type-note">
+                  <small>
+                    <strong>Note:</strong> Using original document content type for rendering: <code>{metadata.originalContentType}</code>
+                  </small>
+                </div>
+              )}
+            </div>
+            <div className="metadata-item">
+              <strong>Size:</strong> {metadata.contentLength} bytes
+            </div>
+            <div className="metadata-item">
+              <strong>Last Modified:</strong> {new Date(metadata.lastModified).toLocaleString()}
+            </div>
+            <div className="metadata-item">
+              <strong>ETag:</strong> {metadata.etag}
+            </div>
           </div>
           {Object.keys(metadata.metadata).length > 0 && (
-            <div className="metadata-item">
-              <strong>Custom Metadata:</strong>
-              <ul>
-                {Object.entries(metadata.metadata).map(([key, value]) => (
-                  <li key={key}>
-                    <strong>{key}:</strong> {value}
-                  </li>
-                ))}
-              </ul>
+            <div className="metadata-right-column">
+              <div className="metadata-item custom-metadata">
+                <strong>Custom Metadata:</strong>
+                <ul>
+                  {Object.entries(metadata.metadata).map(([key, value]) => (
+                    <li key={key}>
+                      <strong>{key}:</strong> {value}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
         </div>
