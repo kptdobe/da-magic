@@ -14,9 +14,10 @@ interface Version {
 interface VersionsListProps {
   versions: Version[];
   onVersionPreview: (versionPath: string) => void;
+  selectedVersionPath?: string | null;
 }
 
-const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview }) => {
+const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview, selectedVersionPath }) => {
   return (
     <div className="versions-list">
       <div className="versions-header">
@@ -27,30 +28,36 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview 
         <div className="version-actions">Actions</div>
       </div>
       
-      {versions.map((version) => (
-        <div key={version.key} className="version-item">
-          <div className="version-filename" title={version.path}>
-            {version.filename}
+      {versions.map((version) => {
+        const isSelected = selectedVersionPath === version.key;
+        return (
+          <div 
+            key={version.key} 
+            className={`version-item ${isSelected ? 'version-item-selected' : ''}`}
+          >
+            <div className="version-filename" title={version.path}>
+              {version.filename}
+            </div>
+            <div className="version-label" title={version.metadata.label || 'No label'}>
+              {version.metadata.label || '-'}
+            </div>
+            <div className="version-size">
+              {version.sizeFormatted}
+            </div>
+            <div className="version-date">
+              {new Date(version.lastModified).toLocaleString()}
+            </div>
+            <div className="version-actions">
+              <button 
+                onClick={() => onVersionPreview(version.key)}
+                className="preview-button"
+              >
+                Preview
+              </button>
+            </div>
           </div>
-          <div className="version-label" title={version.metadata.label || 'No label'}>
-            {version.metadata.label || '-'}
-          </div>
-          <div className="version-size">
-            {version.sizeFormatted}
-          </div>
-          <div className="version-date">
-            {new Date(version.lastModified).toLocaleString()}
-          </div>
-          <div className="version-actions">
-            <button 
-              onClick={() => onVersionPreview(version.key)}
-              className="preview-button"
-            >
-              Preview
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };

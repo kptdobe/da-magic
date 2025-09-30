@@ -319,6 +319,7 @@ function App() {
               <VersionsList 
                 versions={versions} 
                 onVersionPreview={handleVersionPreview}
+                selectedVersionPath={selectedVersionPath}
               />
             </div>
             

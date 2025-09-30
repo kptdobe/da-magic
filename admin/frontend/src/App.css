@@ -446,6 +446,16 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
+.version-item-selected {
+  border-left: 4px solid #61dafb;
+  background-color: #f8f9ff;
+  box-shadow: 0 2px 8px rgba(97, 218, 251, 0.2);
+}
+
+.version-item-selected:hover {
+  box-shadow: 0 2px 8px rgba(97, 218, 251, 0.3);
+}
+
 .version-filename {
   font-family: 'Courier New', monospace;
   font-size: 14px;
