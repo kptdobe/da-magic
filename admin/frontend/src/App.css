@@ -417,7 +417,7 @@
 
 .versions-header {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
   gap: 15px;
   padding: 15px;
   background-color: #f8f9fa;
@@ -428,7 +428,7 @@
 
 .version-item {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
   gap: 15px;
   padding: 15px;
   background-color: white;
@@ -445,6 +445,15 @@
 .version-filename {
   font-family: 'Courier New', monospace;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-label {
+  color: #495057;
+  font-weight: 500;
+  font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

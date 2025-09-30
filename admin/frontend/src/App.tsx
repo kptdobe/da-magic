@@ -24,6 +24,8 @@ interface Version {
   size: number;
   sizeFormatted: string;
   lastModified: string;
+  metadata: { [key: string]: string };
+  contentType: string | null;
 }
 
 function App() {

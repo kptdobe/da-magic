@@ -7,6 +7,8 @@ interface Version {
   size: number;
   sizeFormatted: string;
   lastModified: string;
+  metadata: { [key: string]: string };
+  contentType: string | null;
 }
 
 interface VersionsListProps {
@@ -19,6 +21,7 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview 
     <div className="versions-list">
       <div className="versions-header">
         <div className="version-filename">Filename</div>
+        <div className="version-label">Label</div>
         <div className="version-size">Size</div>
         <div className="version-date">Last Modified</div>
         <div className="version-actions">Actions</div>
@@ -28,6 +31,9 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview 
         <div key={version.key} className="version-item">
           <div className="version-filename" title={version.path}>
             {version.filename}
+          </div>
+          <div className="version-label" title={version.metadata.label || 'No label'}>
+            {version.metadata.label || '-'}
           </div>
           <div className="version-size">
             {version.sizeFormatted}

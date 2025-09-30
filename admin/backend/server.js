@@ -175,18 +175,46 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     
     const versions = await s3Client.send(listCommand);
     
-    // Format the versions data
-    const formattedVersions = versions.Contents
-      .filter(obj => obj.Key !== versionsPath) // Exclude the folder itself
-      .map(obj => ({
-        key: obj.Key,
-        path: `/${obj.Key}`,
-        filename: obj.Key.split('/').pop(),
-        size: obj.Size,
-        sizeFormatted: formatFileSize(obj.Size),
-        lastModified: obj.LastModified
-      }))
-      .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified)); // Sort by date, newest first
+    // Get metadata for all versions in parallel
+    const versionObjects = versions.Contents.filter(obj => obj.Key !== versionsPath);
+    
+    const metadataPromises = versionObjects.map(async (obj) => {
+      try {
+        const headCommand = new HeadObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: obj.Key
+        });
+        const metadata = await s3Client.send(headCommand);
+        return {
+          key: obj.Key,
+          path: `/${obj.Key}`,
+          filename: obj.Key.split('/').pop(),
+          size: obj.Size,
+          sizeFormatted: formatFileSize(obj.Size),
+          lastModified: obj.LastModified,
+          metadata: metadata.Metadata || {},
+          contentType: metadata.ContentType
+        };
+      } catch (error) {
+        console.error(`Error fetching metadata for ${obj.Key}:`, error);
+        // Return basic info if metadata fetch fails
+        return {
+          key: obj.Key,
+          path: `/${obj.Key}`,
+          filename: obj.Key.split('/').pop(),
+          size: obj.Size,
+          sizeFormatted: formatFileSize(obj.Size),
+          lastModified: obj.LastModified,
+          metadata: {},
+          contentType: null
+        };
+      }
+    });
+    
+    const versionsWithMetadata = await Promise.all(metadataPromises);
+    
+    // Sort by date, newest first
+    const formattedVersions = versionsWithMetadata.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
     
     res.json({
       success: true,
