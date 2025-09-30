@@ -21,11 +21,11 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview,
   return (
     <div className="versions-list">
       <div className="versions-header">
-        <div className="version-filename">Filename</div>
-        <div className="version-label">Label</div>
-        <div className="version-size">Size</div>
-        <div className="version-date">Last Modified</div>
-        <div className="version-actions">Actions</div>
+        <div className="version-header-filename">Filename</div>
+        <div className="version-header-label">Label</div>
+        <div className="version-header-size">Size</div>
+        <div className="version-header-date">Last Modified</div>
+        <div className="version-header-actions">Actions</div>
       </div>
       
       {versions.map((version) => {

@@ -430,6 +430,15 @@
   color: #282c34;
 }
 
+.version-header-filename,
+.version-header-label,
+.version-header-size,
+.version-header-date,
+.version-header-actions {
+  font-weight: bold;
+  color: #282c34;
+}
+
 .version-item {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
@@ -457,30 +466,33 @@
 }
 
 .version-filename {
-  font-family: 'Courier New', monospace;
   font-size: 14px;
+  font-weight: normal;
+  color: #495057;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .version-label {
+  font-size: 14px;
+  font-weight: normal;
   color: #495057;
-  font-weight: 500;
-  font-style: italic;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .version-size {
-  font-weight: bold;
-  color: #666;
+  font-size: 14px;
+  font-weight: normal;
+  color: #495057;
 }
 
 .version-date {
-  color: #666;
   font-size: 14px;
+  font-weight: normal;
+  color: #495057;
 }
 
 .version-actions {
