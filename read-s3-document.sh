@@ -117,14 +117,45 @@ read_s3_document() {
         
         # Determine if we should display or download based on content type
         local content_type=$(aws s3api head-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" --query 'ContentType' --output text)
+        local content_encoding=$(aws s3api head-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" --query 'ContentEncoding' --output text 2>/dev/null || echo "None")
+
+        print_status "Content type: $content_type"
+        print_status "Content encoding: $content_encoding"
         
         if [[ "$content_type" == text/* ]] || [[ "$content_type" == application/json ]] || [[ "$content_type" == application/xml ]]; then
             print_status "Displaying text content..."
-            echo ""
-            echo "=== Document Content ==="
-            aws s3 cp "s3://$bucket_name/$document_path" - --endpoint-url "$AWS_ENDPOINT_URL"
-            echo ""
-            echo "=== End of Document ==="
+            
+            # Check if content is gzip-encoded
+            if [[ "$content_encoding" == "gzip" ]]; then
+                print_status "Content is gzip-encoded, decompressing..."
+                echo ""
+                echo "=== Document Content ==="
+                # Use get-object instead of cp for better control
+                aws s3api get-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" /dev/stdout 2>/dev/null | gunzip
+                echo ""
+                echo "=== End of Document ==="
+            else
+                echo ""
+                echo "=== Document Content ==="
+                # Try aws s3 cp first, fall back to get-object if it fails
+                if ! aws s3 cp "s3://$bucket_name/$document_path" - --endpoint-url "$AWS_ENDPOINT_URL" 2>/dev/null; then
+                    # Fallback: try with get-object and check if it's gzip
+                    print_warning "Standard download failed, trying alternative method..."
+                    local temp_file=$(mktemp)
+                    aws s3api get-object --bucket "$bucket_name" --key "$document_path" --endpoint-url "$AWS_ENDPOINT_URL" "$temp_file" >/dev/null 2>&1
+                    
+                    # Check if the file is gzip compressed by trying to decompress
+                    if gunzip -t "$temp_file" 2>/dev/null; then
+                        print_status "File appears to be gzip-compressed, decompressing..."
+                        gunzip -c "$temp_file"
+                    else
+                        cat "$temp_file"
+                    fi
+                    rm -f "$temp_file"
+                fi
+                echo ""
+                echo "=== End of Document ==="
+            fi
         else
             # For binary files, just display info and continue
             local filename=$(basename "$document_path")
