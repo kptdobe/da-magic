@@ -8,10 +8,38 @@ interface DocumentData {
     lastModified: string;
     etag: string;
     metadata: Record<string, string>;
+    // Additional S3 metadata fields
+    contentEncoding: string | null;
+    contentLanguage: string | null;
+    contentDisposition: string | null;
+    cacheControl: string | null;
+    expires: string | null;
+    storageClass: string | null;
+    serverSideEncryption: string | null;
+    versionId: string | null;
+    checksumCRC32: string | null;
+    checksumCRC32C: string | null;
+    checksumSHA1: string | null;
+    checksumSHA256: string | null;
+    acceptRanges: string | null;
+    partsCount: number | null;
+    objectLockMode: string | null;
+    objectLockRetainUntilDate: string | null;
+    objectLockLegalHoldStatus: string | null;
+    replicationStatus: string | null;
+    // File analysis
+    detectedEncoding: string;
+    hasBOM: boolean;
   };
   content: string;
   isTextContent: boolean;
   contentType: string;
+  textAnalysis?: {
+    lineEndingType: string;
+    lineCount: number;
+    charCount: number;
+    nonWhitespaceCount: number;
+  } | null;
 }
 
 interface DocumentViewerProps {
@@ -20,7 +48,7 @@ interface DocumentViewerProps {
 }
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }) => {
-  const { metadata, content, isTextContent, contentType } = document;
+  const { metadata, content, isTextContent, contentType, textAnalysis } = document;
   const [indentHtml, setIndentHtml] = useState(true);
 
   // HTML formatting function
@@ -214,6 +242,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
         <h3>Metadata</h3>
         <div className="metadata-two-column">
           <div className="metadata-left-column">
+            <h4 style={{ marginTop: 0, marginBottom: '10px', color: '#666' }}>Basic Information</h4>
             <div className="metadata-item">
               <strong>Content Type:</strong> {metadata.contentType}
               {metadata.originalContentType && metadata.originalContentType !== metadata.contentType && (
@@ -225,7 +254,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
               )}
             </div>
             <div className="metadata-item">
-              <strong>Size:</strong> {metadata.contentLength} bytes
+              <strong>Size:</strong> {metadata.contentLength.toLocaleString()} bytes
             </div>
             <div className="metadata-item">
               <strong>Last Modified:</strong> {new Date(metadata.lastModified).toLocaleString()}
@@ -233,21 +262,170 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
             <div className="metadata-item">
               <strong>ETag:</strong> {metadata.etag}
             </div>
-          </div>
-          {Object.keys(metadata.metadata).length > 0 && (
-            <div className="metadata-right-column">
-              <div className="metadata-item custom-metadata">
-                <strong>Custom Metadata:</strong>
-                <ul>
-                  {Object.entries(metadata.metadata).map(([key, value]) => (
-                    <li key={key}>
-                      <strong>{key}:</strong> {value}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+            
+            <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>File Encoding & Analysis</h4>
+            <div className="metadata-item">
+              <strong>Detected Encoding:</strong> {metadata.detectedEncoding || 'Unknown'}
+              {metadata.hasBOM && <span style={{ color: '#e67e22', marginLeft: '8px' }}>(with BOM)</span>}
             </div>
-          )}
+            {textAnalysis && (
+              <>
+                <div className="metadata-item">
+                  <strong>Line Endings:</strong> {textAnalysis.lineEndingType}
+                </div>
+                <div className="metadata-item">
+                  <strong>Line Count:</strong> {textAnalysis.lineCount.toLocaleString()}
+                </div>
+                <div className="metadata-item">
+                  <strong>Character Count:</strong> {textAnalysis.charCount.toLocaleString()}
+                </div>
+                <div className="metadata-item">
+                  <strong>Non-Whitespace Characters:</strong> {textAnalysis.nonWhitespaceCount.toLocaleString()}
+                </div>
+              </>
+            )}
+            
+            {(metadata.contentEncoding || metadata.contentLanguage || metadata.contentDisposition) && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Content Properties</h4>
+                {metadata.contentEncoding && (
+                  <div className="metadata-item">
+                    <strong>Content Encoding:</strong> {metadata.contentEncoding}
+                  </div>
+                )}
+                {metadata.contentLanguage && (
+                  <div className="metadata-item">
+                    <strong>Content Language:</strong> {metadata.contentLanguage}
+                  </div>
+                )}
+                {metadata.contentDisposition && (
+                  <div className="metadata-item">
+                    <strong>Content Disposition:</strong> {metadata.contentDisposition}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          
+          <div className="metadata-right-column">
+            {(metadata.cacheControl || metadata.expires) && (
+              <>
+                <h4 style={{ marginTop: 0, marginBottom: '10px', color: '#666' }}>Caching</h4>
+                {metadata.cacheControl && (
+                  <div className="metadata-item">
+                    <strong>Cache Control:</strong> {metadata.cacheControl}
+                  </div>
+                )}
+                {metadata.expires && (
+                  <div className="metadata-item">
+                    <strong>Expires:</strong> {new Date(metadata.expires).toLocaleString()}
+                  </div>
+                )}
+              </>
+            )}
+            
+            {(metadata.storageClass || metadata.serverSideEncryption || metadata.versionId || metadata.acceptRanges || metadata.partsCount) && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Storage & Security</h4>
+                {metadata.storageClass && (
+                  <div className="metadata-item">
+                    <strong>Storage Class:</strong> {metadata.storageClass}
+                  </div>
+                )}
+                {metadata.serverSideEncryption && (
+                  <div className="metadata-item">
+                    <strong>Server-Side Encryption:</strong> {metadata.serverSideEncryption}
+                  </div>
+                )}
+                {metadata.versionId && (
+                  <div className="metadata-item">
+                    <strong>Version ID:</strong> <code>{metadata.versionId}</code>
+                  </div>
+                )}
+                {metadata.acceptRanges && (
+                  <div className="metadata-item">
+                    <strong>Accept Ranges:</strong> {metadata.acceptRanges}
+                  </div>
+                )}
+                {metadata.partsCount && (
+                  <div className="metadata-item">
+                    <strong>Parts Count:</strong> {metadata.partsCount}
+                  </div>
+                )}
+              </>
+            )}
+            
+            {(metadata.checksumCRC32 || metadata.checksumCRC32C || metadata.checksumSHA1 || metadata.checksumSHA256) && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Checksums</h4>
+                {metadata.checksumCRC32 && (
+                  <div className="metadata-item">
+                    <strong>CRC32:</strong> <code>{metadata.checksumCRC32}</code>
+                  </div>
+                )}
+                {metadata.checksumCRC32C && (
+                  <div className="metadata-item">
+                    <strong>CRC32C:</strong> <code>{metadata.checksumCRC32C}</code>
+                  </div>
+                )}
+                {metadata.checksumSHA1 && (
+                  <div className="metadata-item">
+                    <strong>SHA1:</strong> <code>{metadata.checksumSHA1}</code>
+                  </div>
+                )}
+                {metadata.checksumSHA256 && (
+                  <div className="metadata-item">
+                    <strong>SHA256:</strong> <code>{metadata.checksumSHA256}</code>
+                  </div>
+                )}
+              </>
+            )}
+            
+            {(metadata.objectLockMode || metadata.objectLockRetainUntilDate || metadata.objectLockLegalHoldStatus) && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Object Lock</h4>
+                {metadata.objectLockMode && (
+                  <div className="metadata-item">
+                    <strong>Lock Mode:</strong> {metadata.objectLockMode}
+                  </div>
+                )}
+                {metadata.objectLockRetainUntilDate && (
+                  <div className="metadata-item">
+                    <strong>Retain Until:</strong> {new Date(metadata.objectLockRetainUntilDate).toLocaleString()}
+                  </div>
+                )}
+                {metadata.objectLockLegalHoldStatus && (
+                  <div className="metadata-item">
+                    <strong>Legal Hold:</strong> {metadata.objectLockLegalHoldStatus}
+                  </div>
+                )}
+              </>
+            )}
+            
+            {metadata.replicationStatus && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Replication</h4>
+                <div className="metadata-item">
+                  <strong>Status:</strong> {metadata.replicationStatus}
+                </div>
+              </>
+            )}
+            
+            {Object.keys(metadata.metadata).length > 0 && (
+              <>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#666' }}>Custom Metadata</h4>
+                <div className="metadata-item custom-metadata">
+                  <ul>
+                    {Object.entries(metadata.metadata).map(([key, value]) => (
+                      <li key={key}>
+                        <strong>{key}:</strong> {value}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

@@ -78,6 +78,99 @@ const streamToBuffer = async (stream) => {
   return Buffer.concat(chunks);
 };
 
+// Helper function to detect character encoding
+const detectEncoding = (buffer) => {
+  // Check for BOM (Byte Order Mark)
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+    return { encoding: 'UTF-8', bom: true };
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+    return { encoding: 'UTF-16LE', bom: true };
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+    return { encoding: 'UTF-16BE', bom: true };
+  }
+  if (buffer.length >= 4 && buffer[0] === 0xFF && buffer[1] === 0xFE && buffer[2] === 0x00 && buffer[3] === 0x00) {
+    return { encoding: 'UTF-32LE', bom: true };
+  }
+  if (buffer.length >= 4 && buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0xFE && buffer[3] === 0xFF) {
+    return { encoding: 'UTF-32BE', bom: true };
+  }
+
+  // Try to detect encoding by analyzing content
+  let hasNullBytes = false;
+  let hasHighBytes = false;
+  let validUtf8 = true;
+
+  for (let i = 0; i < Math.min(buffer.length, 1024); i++) {
+    if (buffer[i] === 0) {
+      hasNullBytes = true;
+      break;
+    }
+    if (buffer[i] > 127) {
+      hasHighBytes = true;
+    }
+  }
+
+  if (hasNullBytes) {
+    return { encoding: 'Binary/UTF-16/UTF-32', bom: false };
+  }
+
+  // Check if valid UTF-8
+  try {
+    const str = buffer.toString('utf8');
+    // Check for replacement characters which indicate invalid UTF-8
+    if (str.includes('\uFFFD')) {
+      validUtf8 = false;
+    }
+  } catch (e) {
+    validUtf8 = false;
+  }
+
+  if (!hasHighBytes) {
+    return { encoding: 'ASCII', bom: false };
+  }
+
+  if (validUtf8) {
+    return { encoding: 'UTF-8', bom: false };
+  }
+
+  return { encoding: 'ISO-8859-1/Windows-1252 (likely)', bom: false };
+};
+
+// Helper function to detect line endings and count lines
+const analyzeTextContent = (content) => {
+  const hasCRLF = content.includes('\r\n');
+  const hasCR = content.includes('\r') && !hasCRLF;
+  const hasLF = content.includes('\n') && !hasCRLF;
+
+  let lineEndingType = 'None';
+  if (hasCRLF) {
+    lineEndingType = 'CRLF (Windows)';
+  } else if (hasLF) {
+    lineEndingType = 'LF (Unix/Mac)';
+  } else if (hasCR) {
+    lineEndingType = 'CR (Old Mac)';
+  }
+
+  // Count lines
+  const lines = content.split(/\r\n|\r|\n/);
+  const lineCount = lines.length;
+  
+  // Count characters (excluding line endings for consistency)
+  const charCount = content.length;
+  
+  // Count non-whitespace characters
+  const nonWhitespaceCount = content.replace(/\s/g, '').length;
+
+  return {
+    lineEndingType,
+    lineCount,
+    charCount,
+    nonWhitespaceCount
+  };
+};
+
 // API Routes
 
 // Get document metadata and content
@@ -111,8 +204,18 @@ app.get('/api/document/:path(*)', async (req, res) => {
     const buffer = await streamToBuffer(document.Body);
     
     let content = null;
+    let textAnalysis = null;
+    let encodingInfo = null;
+    
+    // Detect encoding for all files
+    encodingInfo = detectEncoding(buffer);
+    console.log('Document encoding info detected:', encodingInfo);
+    
     if (isTextContent) {
       content = buffer.toString('utf8');
+      // Analyze text content
+      textAnalysis = analyzeTextContent(content);
+      console.log('Document text analysis:', textAnalysis);
     } else {
       // For binary content, return as base64
       content = buffer.toString('base64');
@@ -125,11 +228,34 @@ app.get('/api/document/:path(*)', async (req, res) => {
         contentType: metadata.ContentType,
         lastModified: metadata.LastModified,
         etag: metadata.ETag,
-        metadata: metadata.Metadata || {}
+        metadata: metadata.Metadata || {},
+        // Additional S3 metadata fields
+        contentEncoding: metadata.ContentEncoding || null,
+        contentLanguage: metadata.ContentLanguage || null,
+        contentDisposition: metadata.ContentDisposition || null,
+        cacheControl: metadata.CacheControl || null,
+        expires: metadata.Expires || null,
+        storageClass: metadata.StorageClass || null,
+        serverSideEncryption: metadata.ServerSideEncryption || null,
+        versionId: metadata.VersionId || null,
+        checksumCRC32: metadata.ChecksumCRC32 || null,
+        checksumCRC32C: metadata.ChecksumCRC32C || null,
+        checksumSHA1: metadata.ChecksumSHA1 || null,
+        checksumSHA256: metadata.ChecksumSHA256 || null,
+        acceptRanges: metadata.AcceptRanges || null,
+        partsCount: metadata.PartsCount || null,
+        objectLockMode: metadata.ObjectLockMode || null,
+        objectLockRetainUntilDate: metadata.ObjectLockRetainUntilDate || null,
+        objectLockLegalHoldStatus: metadata.ObjectLockLegalHoldStatus || null,
+        replicationStatus: metadata.ReplicationStatus || null,
+        // File analysis
+        detectedEncoding: encodingInfo.encoding,
+        hasBOM: encodingInfo.bom
       },
       content: content,
       isTextContent: isTextContent,
-      contentType: contentType
+      contentType: contentType,
+      textAnalysis: textAnalysis
     });
     
   } catch (error) {
@@ -264,8 +390,16 @@ app.get('/api/version/:path(*)', async (req, res) => {
     const buffer = await streamToBuffer(document.Body);
     
     let content = null;
+    let textAnalysis = null;
+    let encodingInfo = null;
+    
+    // Detect encoding for all files
+    encodingInfo = detectEncoding(buffer);
+    
     if (isTextContent) {
       content = buffer.toString('utf8');
+      // Analyze text content
+      textAnalysis = analyzeTextContent(content);
     } else {
       // For binary content, return as base64
       content = buffer.toString('base64');
@@ -279,11 +413,34 @@ app.get('/api/version/:path(*)', async (req, res) => {
         originalContentType: contentType, // Original document content type used for rendering
         lastModified: metadata.LastModified,
         etag: metadata.ETag,
-        metadata: metadata.Metadata || {}
+        metadata: metadata.Metadata || {},
+        // Additional S3 metadata fields
+        contentEncoding: metadata.ContentEncoding || null,
+        contentLanguage: metadata.ContentLanguage || null,
+        contentDisposition: metadata.ContentDisposition || null,
+        cacheControl: metadata.CacheControl || null,
+        expires: metadata.Expires || null,
+        storageClass: metadata.StorageClass || null,
+        serverSideEncryption: metadata.ServerSideEncryption || null,
+        versionId: metadata.VersionId || null,
+        checksumCRC32: metadata.ChecksumCRC32 || null,
+        checksumCRC32C: metadata.ChecksumCRC32C || null,
+        checksumSHA1: metadata.ChecksumSHA1 || null,
+        checksumSHA256: metadata.ChecksumSHA256 || null,
+        acceptRanges: metadata.AcceptRanges || null,
+        partsCount: metadata.PartsCount || null,
+        objectLockMode: metadata.ObjectLockMode || null,
+        objectLockRetainUntilDate: metadata.ObjectLockRetainUntilDate || null,
+        objectLockLegalHoldStatus: metadata.ObjectLockLegalHoldStatus || null,
+        replicationStatus: metadata.ReplicationStatus || null,
+        // File analysis
+        detectedEncoding: encodingInfo.encoding,
+        hasBOM: encodingInfo.bom
       },
       content: content,
       isTextContent: isTextContent,
-      contentType: contentType // Original content type used for rendering
+      contentType: contentType, // Original content type used for rendering
+      textAnalysis: textAnalysis
     });
     
   } catch (error) {

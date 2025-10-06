@@ -11,10 +11,38 @@ interface DocumentData {
     lastModified: string;
     etag: string;
     metadata: Record<string, string>;
+    // Additional S3 metadata fields
+    contentEncoding: string | null;
+    contentLanguage: string | null;
+    contentDisposition: string | null;
+    cacheControl: string | null;
+    expires: string | null;
+    storageClass: string | null;
+    serverSideEncryption: string | null;
+    versionId: string | null;
+    checksumCRC32: string | null;
+    checksumCRC32C: string | null;
+    checksumSHA1: string | null;
+    checksumSHA256: string | null;
+    acceptRanges: string | null;
+    partsCount: number | null;
+    objectLockMode: string | null;
+    objectLockRetainUntilDate: string | null;
+    objectLockLegalHoldStatus: string | null;
+    replicationStatus: string | null;
+    // File analysis
+    detectedEncoding: string;
+    hasBOM: boolean;
   };
   content: string;
   isTextContent: boolean;
   contentType: string;
+  textAnalysis?: {
+    lineEndingType: string;
+    lineCount: number;
+    charCount: number;
+    nonWhitespaceCount: number;
+  } | null;
 }
 
 interface Version {
