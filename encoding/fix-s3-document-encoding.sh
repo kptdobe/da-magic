@@ -76,19 +76,19 @@ check_jq() {
 
 # Function to load environment variables from .dev.vars
 load_env_vars() {
-    if [[ ! -f ".dev.vars" ]]; then
-        print_error ".dev.vars file not found in current directory"
+    if [[ ! -f "../.dev.vars" ]]; then
+        print_error ".dev.vars file not found in parent directory"
         exit 1
     fi
     
-    print_status "Loading environment variables from .dev.vars"
+    print_status "Loading environment variables from ../.dev.vars"
     
     # Source the .dev.vars file
-    export $(grep -v '^#' .dev.vars | xargs)
+    export $(grep -v '^#' ../.dev.vars | xargs)
     
     # Verify required variables are set
     if [[ -z "$S3_ACCESS_KEY_ID" || -z "$S3_SECRET_ACCESS_KEY" || -z "$S3_DEF_URL" ]]; then
-        print_error "Required S3 environment variables not found in .dev.vars"
+        print_error "Required S3 environment variables not found in ../.dev.vars"
         echo "Required: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_DEF_URL"
         exit 1
     fi
@@ -98,7 +98,7 @@ load_env_vars() {
 
 # Function to configure AWS CLI
 configure_aws() {
-    print_status "Configuring AWS CLI with S3 credentials"
+    print_status "Configuring AWS CLI with S3 credentials from ../.dev.vars file"
     
     # Set AWS credentials
     export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
@@ -130,14 +130,14 @@ fix_document_encoding() {
     
     # Get object metadata using Node.js SDK (more reliable than AWS CLI for ContentEncoding)
     print_status "Getting document metadata using Node.js SDK..."
-    local node_helper="$SCRIPT_DIR/admin/backend/check-encoding-node.js"
+    local node_helper="$SCRIPT_DIR/check-encoding-node.js"
     
     if [[ ! -f "$node_helper" ]]; then
         print_error "Node.js helper script not found: $node_helper"
         exit 1
     fi
     
-    local metadata_json=$(cd "$SCRIPT_DIR/admin/backend" && node check-encoding-node.js "$bucket_name" "$document_path" 2>&1)
+    local metadata_json=$(node check-encoding-node.js "$bucket_name" "$document_path" 2>&1)
     
     if [[ $? -ne 0 ]]; then
         print_error "Failed to get metadata using Node.js SDK"
