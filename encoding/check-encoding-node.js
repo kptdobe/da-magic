@@ -16,9 +16,9 @@ const key = process.argv[3];
 
 // Load environment variables from .dev.vars
 const loadEnvVars = () => {
-  const envPath = path.join(__dirname, '../../.dev.vars');
+  const envPath = path.join(__dirname, '../.dev.vars');
   if (!fs.existsSync(envPath)) {
-    throw new Error('.dev.vars file not found');
+    throw new Error('.dev.vars file not found at: ' + envPath);
   }
   
   const envContent = fs.readFileSync(envPath, 'utf8');

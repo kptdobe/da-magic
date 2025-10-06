@@ -137,7 +137,7 @@ fix_document_encoding() {
         exit 1
     fi
     
-    local metadata_json=$(node check-encoding-node.js "$bucket_name" "$document_path" 2>&1)
+    local metadata_json=$(cd "$SCRIPT_DIR" && node check-encoding-node.js "$bucket_name" "$document_path" 2>&1)
     
     if [[ $? -ne 0 ]]; then
         print_error "Failed to get metadata using Node.js SDK"
