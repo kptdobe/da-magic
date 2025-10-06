@@ -21,7 +21,7 @@ interface DocumentViewerProps {
 
 const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }) => {
   const { metadata, content, isTextContent, contentType } = document;
-  const [indentHtml, setIndentHtml] = useState(false);
+  const [indentHtml, setIndentHtml] = useState(true);
 
   // HTML formatting function
   const formatHtml = (html: string): string => {
