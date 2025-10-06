@@ -80,28 +80,50 @@ const stats = {
 // Array to store gzip-encoded files
 const gzipFiles = [];
 
-// Function to list all objects in a bucket with a prefix (handles pagination)
-async function listAllObjects(bucket, prefix) {
-  const allObjects = [];
+// Function to list objects and process them in parallel as they come in
+async function listAndProcessObjects(bucket, prefix, batchSize = 50) {
   let continuationToken = null;
+  let totalListed = 0;
+  const processingPromises = [];
   
   do {
     const command = new ListObjectsV2Command({
       Bucket: bucket,
       Prefix: prefix,
-      ContinuationToken: continuationToken
+      ContinuationToken: continuationToken,
+      MaxKeys: 1000 // Request maximum keys per page for efficiency
     });
     
     const response = await s3Client.send(command);
     
-    if (response.Contents) {
-      allObjects.push(...response.Contents);
+    if (response.Contents && response.Contents.length > 0) {
+      totalListed += response.Contents.length;
+      
+      // Process this batch immediately in parallel while we fetch the next page
+      const batchPromise = processBatchImmediate(response.Contents, batchSize);
+      processingPromises.push(batchPromise);
+      
+      // Show progress
+      process.stdout.write(`\rListing: ${totalListed} objects found, ${stats.gzipFiles} gzip files detected...`);
     }
     
     continuationToken = response.NextContinuationToken;
   } while (continuationToken);
   
-  return allObjects;
+  // Wait for all processing to complete
+  await Promise.all(processingPromises);
+  
+  console.log(''); // New line after progress
+  return totalListed;
+}
+
+// Function to process a batch immediately (used during listing)
+async function processBatchImmediate(objects, batchSize = 50) {
+  for (let i = 0; i < objects.length; i += batchSize) {
+    const batch = objects.slice(i, i + batchSize);
+    const batchPromises = batch.map(obj => checkFileEncoding(bucket, obj.Key));
+    await Promise.all(batchPromises);
+  }
 }
 
 // Function to check if a file has gzip encoding
@@ -137,25 +159,6 @@ async function checkFileEncoding(bucket, key) {
   }
 }
 
-// Function to process files in batches with concurrency limit
-async function processBatch(objects, batchSize = 50) {
-  const results = [];
-  
-  for (let i = 0; i < objects.length; i += batchSize) {
-    const batch = objects.slice(i, i + batchSize);
-    const batchPromises = batch.map(obj => checkFileEncoding(bucket, obj.Key));
-    const batchResults = await Promise.all(batchPromises);
-    results.push(...batchResults);
-    
-    // Progress indicator
-    const progress = Math.min(i + batchSize, objects.length);
-    const percentage = ((progress / objects.length) * 100).toFixed(1);
-    process.stdout.write(`\rProgress: ${progress}/${objects.length} (${percentage}%) - Found ${stats.gzipFiles} gzip files`);
-  }
-  
-  console.log(''); // New line after progress
-  return results;
-}
 
 // Main function
 async function main() {
@@ -167,22 +170,19 @@ async function main() {
   console.log('');
   
   try {
-    // Step 1: List all objects
-    console.log('Step 1: Listing all objects...');
-    const objects = await listAllObjects(bucket, prefix);
-    console.log(`Found ${objects.length} objects`);
+    // List and process objects in parallel (streaming approach)
+    console.log('Scanning objects and checking ContentEncoding...');
+    console.log('(Processing files as they are discovered for maximum speed)');
     console.log('');
     
-    if (objects.length === 0) {
+    const totalObjects = await listAndProcessObjects(bucket, prefix, 100); // Increased batch size to 100
+    
+    if (totalObjects === 0) {
       console.log('No objects found with the specified prefix.');
       return;
     }
     
-    // Step 2: Check each object's encoding in parallel batches
-    console.log('Step 2: Checking ContentEncoding for each file...');
-    await processBatch(objects);
-    
-    // Step 3: Display results
+    // Display results
     console.log('');
     console.log('='.repeat(60));
     console.log('RESULTS');
