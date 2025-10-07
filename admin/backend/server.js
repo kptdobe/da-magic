@@ -209,13 +209,11 @@ app.get('/api/document/:path(*)', async (req, res) => {
     
     // Detect encoding for all files
     encodingInfo = detectEncoding(buffer);
-    console.log('Document encoding info detected:', encodingInfo);
     
     if (isTextContent) {
       content = buffer.toString('utf8');
       // Analyze text content
       textAnalysis = analyzeTextContent(content);
-      console.log('Document text analysis:', textAnalysis);
     } else {
       // For binary content, return as base64
       content = buffer.toString('base64');
