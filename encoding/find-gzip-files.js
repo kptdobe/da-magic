@@ -64,7 +64,7 @@ const loadEnvVars = () => {
 
 const envVars = loadEnvVars();
 
-// Configure S3 client
+// Configure S3 client with higher connection limits
 const s3Client = new S3Client({
   credentials: {
     accessKeyId: envVars.S3_ACCESS_KEY_ID,
@@ -72,7 +72,13 @@ const s3Client = new S3Client({
   },
   endpoint: envVars.S3_DEF_URL,
   forcePathStyle: true,
-  region: 'auto'
+  region: 'auto',
+  maxAttempts: 3,
+  requestHandler: {
+    connectionTimeout: 30000,
+    socketTimeout: 30000,
+    maxSockets: 200, // Increase from default 50
+  }
 });
 
 // Statistics
@@ -87,42 +93,88 @@ const stats = {
 // Array to store gzip-encoded files
 const gzipFiles = [];
 
-// Function to list objects and process them in parallel as they come in
-async function listAndProcessObjects(bucket, prefix, batchSize = 50) {
+// Function to list objects in current folder only (not recursive)
+async function listCurrentFolderObjects(bucket, prefix) {
   let continuationToken = null;
-  let totalListed = 0;
-  const processingPromises = [];
+  const allObjects = [];
   
   do {
     const command = new ListObjectsV2Command({
       Bucket: bucket,
       Prefix: prefix,
+      Delimiter: '/', // This makes it list only current folder contents
       ContinuationToken: continuationToken,
-      MaxKeys: 1000 // Request maximum keys per page for efficiency
+      MaxKeys: 1000
     });
     
     const response = await s3Client.send(command);
     
     if (response.Contents && response.Contents.length > 0) {
-      totalListed += response.Contents.length;
-      
-      // Process this batch immediately in parallel while we fetch the next page
-      // Note: .da-versions folders are automatically filtered out
-      const batchPromise = processBatchImmediate(response.Contents, batchSize);
-      processingPromises.push(batchPromise);
-      
-      // Show progress
-      process.stdout.write(`\rListing: ${totalListed} objects found, ${stats.gzipFiles} gzip files detected...`);
+      allObjects.push(...response.Contents);
     }
     
     continuationToken = response.NextContinuationToken;
   } while (continuationToken);
   
-  // Wait for all processing to complete
-  await Promise.all(processingPromises);
+  return allObjects;
+}
+
+// Function to discover subfolders in current directory
+async function discoverSubfolders(bucket, prefix) {
+  const command = new ListObjectsV2Command({
+    Bucket: bucket,
+    Prefix: prefix,
+    Delimiter: '/',
+    MaxKeys: 1000
+  });
   
-  console.log(''); // New line after progress
-  return totalListed;
+  const response = await s3Client.send(command);
+  const subfolders = [];
+  
+  if (response.CommonPrefixes) {
+    response.CommonPrefixes.forEach(prefixObj => {
+      // Filter out .da-versions folders
+      if (!prefixObj.Prefix.includes('/.da-versions/')) {
+        subfolders.push(prefixObj.Prefix);
+      }
+    });
+  }
+  
+  return subfolders;
+}
+
+// Function to process a folder and its subfolders recursively
+async function processFolder(bucket, folderPrefix, batchSize = 50) {
+  // List files in current folder only
+  const objects = await listCurrentFolderObjects(bucket, folderPrefix);
+  
+  if (objects.length > 0) {
+    // Process files in current folder immediately
+    await processBatchImmediate(objects, batchSize);
+    
+    // Show progress
+    process.stdout.write(`\rProcessed folder: ${folderPrefix} (${objects.length} files), ${stats.gzipFiles} gzip files detected...`);
+  }
+  
+  // Discover subfolders
+  const subfolders = await discoverSubfolders(bucket, folderPrefix);
+  
+  let totalObjectsInSubfolders = 0;
+  
+  if (subfolders.length > 0) {
+    // Process subfolders with limited concurrency to avoid overwhelming connections
+    const maxConcurrentSubfolders = 10;
+    for (let i = 0; i < subfolders.length; i += maxConcurrentSubfolders) {
+      const batch = subfolders.slice(i, i + maxConcurrentSubfolders);
+      const subfolderPromises = batch.map(subfolder => 
+        processFolder(bucket, subfolder, batchSize)
+      );
+      const subfolderResults = await Promise.all(subfolderPromises);
+      totalObjectsInSubfolders += subfolderResults.reduce((sum, count) => sum + count, 0);
+    }
+  }
+  
+  return objects.length + totalObjectsInSubfolders;
 }
 
 // Function to process a batch immediately (used during listing)
@@ -193,12 +245,14 @@ async function main() {
   });
   
   try {
-    // List and process objects in parallel (streaming approach)
+    // Process folder and subfolders recursively with parallel subfolder processing
     console.log('Scanning objects and checking ContentEncoding...');
-    console.log('(Processing files as they are discovered for maximum speed)');
+    console.log('(Processing files in current folder, then parallelizing subfolders)');
     console.log('');
     
-    const totalObjects = await listAndProcessObjects(bucket, prefix, 100); // Increased batch size to 100
+    const totalObjects = await processFolder(bucket, prefix, 25); // Conservative batch size to avoid connection limits
+    
+    console.log(''); // New line after progress
     
     if (totalObjects === 0) {
       console.log('No objects found with the specified prefix.');
@@ -220,20 +274,20 @@ async function main() {
     console.log('');
     
     if (gzipFiles.length > 0) {
-      console.log('='.repeat(60));
-      console.log('GZIP-ENCODED FILES');
-      console.log('='.repeat(60));
+      // console.log('='.repeat(60));
+      // console.log('GZIP-ENCODED FILES');
+      // console.log('='.repeat(60));
       
       // Sort by key for easier reading
-      gzipFiles.sort((a, b) => a.key.localeCompare(b.key));
+      // gzipFiles.sort((a, b) => a.key.localeCompare(b.key));
       
-      gzipFiles.forEach((file, index) => {
-        console.log(`${index + 1}. ${file.key}`);
-        console.log(`   Size: ${formatBytes(file.size)}`);
-        console.log(`   Type: ${file.contentType}`);
-        console.log(`   Modified: ${file.lastModified.toISOString()}`);
-        console.log('');
-      });
+      // gzipFiles.forEach((file, index) => {
+      //   console.log(`${index + 1}. ${file.key}`);
+      //   console.log(`   Size: ${formatBytes(file.size)}`);
+      //   console.log(`   Type: ${file.contentType}`);
+      //   console.log(`   Modified: ${file.lastModified.toISOString()}`);
+      //   console.log('');
+      // });
       
       // Also output a simple list for easy copying
       console.log('='.repeat(60));
