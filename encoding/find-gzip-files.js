@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Find all files with gzip ContentEncoding in S3 bucket
-// Usage: node find-gzip-files.js <prefix>
+// Usage: node find-gzip-files.js <prefix> [output-file]
 // Example: node find-gzip-files.js cmegroup/www/drafts
+// Example: node find-gzip-files.js cmegroup/www/drafts my-gzip-files.txt
+// Note: Automatically ignores .da-versions folders
 
 const { S3Client, ListObjectsV2Command, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
@@ -9,13 +11,18 @@ const path = require('path');
 
 // Parse command line arguments
 if (process.argv.length < 3) {
-  console.error('Usage: node find-gzip-files.js <prefix>');
+  console.error('Usage: node find-gzip-files.js <prefix> [output-file]');
   console.error('Example: node find-gzip-files.js cmegroup/www/drafts');
+  console.error('Example: node find-gzip-files.js cmegroup/www/drafts my-gzip-files.txt');
   process.exit(1);
 }
 
 const bucket = 'aem-content';  // Hardcoded bucket name
 const prefix = process.argv[2];
+const outputFile = process.argv[3] || 'list.txt';
+
+// Create file stream for progressive output
+let outputStream = null;
 
 // Load environment variables from .dev.vars (relative to where script is run from)
 const loadEnvVars = () => {
@@ -100,6 +107,7 @@ async function listAndProcessObjects(bucket, prefix, batchSize = 50) {
       totalListed += response.Contents.length;
       
       // Process this batch immediately in parallel while we fetch the next page
+      // Note: .da-versions folders are automatically filtered out
       const batchPromise = processBatchImmediate(response.Contents, batchSize);
       processingPromises.push(batchPromise);
       
@@ -119,8 +127,11 @@ async function listAndProcessObjects(bucket, prefix, batchSize = 50) {
 
 // Function to process a batch immediately (used during listing)
 async function processBatchImmediate(objects, batchSize = 50) {
-  for (let i = 0; i < objects.length; i += batchSize) {
-    const batch = objects.slice(i, i + batchSize);
+  // Filter out objects in .da-versions folder
+  const filteredObjects = objects.filter(obj => !obj.Key.includes('/.da-versions/'));
+  
+  for (let i = 0; i < filteredObjects.length; i += batchSize) {
+    const batch = filteredObjects.slice(i, i + batchSize);
     const batchPromises = batch.map(obj => checkFileEncoding(bucket, obj.Key));
     await Promise.all(batchPromises);
   }
@@ -147,6 +158,11 @@ async function checkFileEncoding(bucket, key) {
         contentType: metadata.ContentType,
         lastModified: metadata.LastModified
       });
+      
+      // Write to output file immediately
+      if (outputStream) {
+        outputStream.write(key + '\n');
+      }
     } else {
       stats.nonGzipFiles++;
     }
@@ -167,7 +183,14 @@ async function main() {
   console.log('='.repeat(60));
   console.log(`Bucket: ${bucket}`);
   console.log(`Prefix: ${prefix}`);
+  console.log(`Output file: ${outputFile}`);
   console.log('');
+  
+  // Create output file stream
+  outputStream = fs.createWriteStream(outputFile);
+  outputStream.on('error', (err) => {
+    console.error(`Error writing to ${outputFile}:`, err.message);
+  });
   
   try {
     // List and process objects in parallel (streaming approach)
@@ -223,9 +246,18 @@ async function main() {
       console.log('No gzip-encoded files found! ✓');
     }
     
+    // Close output stream
+    if (outputStream) {
+      outputStream.end();
+      console.log(`\nFile list written to: ${outputFile}`);
+    }
+    
   } catch (error) {
     console.error('Error:', error.message);
     console.error(error.stack);
+    if (outputStream) {
+      outputStream.end();
+    }
     process.exit(1);
   }
 }
