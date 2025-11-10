@@ -1,0 +1,16 @@
+{
+  "name": "da-magic-find",
+  "version": "1.0.0",
+  "description": "Scripts to find and analyze content in S3 bucket",
+  "main": "find-hlx-ref.js",
+  "scripts": {
+    "find-hlx": "node find-hlx-ref.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.450.0"
+  },
+  "keywords": ["s3", "find", "hlx", "helix"],
+  "author": "",
+  "license": "MIT"
+}
+

@@ -40,6 +40,8 @@ show_usage() {
     echo "  -h, --help               Show this help message"
     echo ""
     echo "Examples:"
+    echo "  $0 '/' # List root folders"
+    echo "  $0 '' # List root folders (empty string)"
     echo "  $0 'images/'"
     echo "  $0 -o 'myorg' 'documents/'"
     echo "  $0 -b 'my-bucket' -r 'uploads/'"
@@ -57,6 +59,9 @@ FOLDER_PATH=""
 RECURSIVE=false
 SHOW_DETAILS=false
 OUTPUT_FILE=""
+
+# Save original arg count to check if any arguments were provided
+ORIGINAL_ARG_COUNT=$#
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -104,10 +109,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check if required arguments are provided
-if [[ -z "$FOLDER_PATH" ]]; then
-    print_error "Missing required argument: folder path"
+# Allow empty path for root listing
+if [[ $ORIGINAL_ARG_COUNT -eq 0 ]]; then
+    print_error "Missing required argument: folder path (use '/' or '.' for root)"
     show_usage
     exit 1
+fi
+
+# Default to root if empty string provided or just "/"
+if [[ -z "$FOLDER_PATH" ]] || [[ "$FOLDER_PATH" == "/" ]]; then
+    FOLDER_PATH=""
 fi
 
 # Load environment variables from .dev.vars
@@ -131,12 +142,16 @@ if [[ -n "$ORG" ]]; then
     FULL_FOLDER_PATH="$ORG/$FOLDER_PATH"
 fi
 
-# Ensure folder path ends with / for proper S3 listing
-if [[ ! "$FULL_FOLDER_PATH" =~ /$ ]]; then
+# Ensure folder path ends with / for proper S3 listing (unless it's empty for root)
+if [[ -n "$FULL_FOLDER_PATH" ]] && [[ ! "$FULL_FOLDER_PATH" =~ /$ ]]; then
     FULL_FOLDER_PATH="$FULL_FOLDER_PATH/"
 fi
 
-print_status "Listing contents of folder: $FULL_FOLDER_PATH"
+if [[ -z "$FULL_FOLDER_PATH" ]]; then
+    print_status "Listing contents of: ROOT (bucket root)"
+else
+    print_status "Listing contents of folder: $FULL_FOLDER_PATH"
+fi
 print_status "Bucket: $BUCKET"
 print_status "Recursive: $RECURSIVE"
 print_status "Show details: $SHOW_DETAILS"
@@ -318,7 +333,11 @@ fi
 
     # Check if the operation was successful
     if [[ $? -eq 0 ]]; then
-        print_success "Successfully listed contents of folder: $FULL_FOLDER_PATH"
+        if [[ -z "$FULL_FOLDER_PATH" ]]; then
+            print_success "Successfully listed contents of bucket root"
+        else
+            print_success "Successfully listed contents of folder: $FULL_FOLDER_PATH"
+        fi
         
         # Show output file info if specified
         if [[ -n "$OUTPUT_FILE" ]]; then
@@ -329,32 +348,50 @@ fi
         print_status ""
         print_status "Summary:"
     
-    # Count total objects - handle null case
-    TOTAL_OBJECTS=$(aws s3api list-objects-v2 \
-        --bucket "$BUCKET" \
-        --prefix "$FULL_FOLDER_PATH" \
-        --endpoint-url "$ENDPOINT_URL" \
-        --region auto \
-        --query 'length(Contents || `[]`)' \
-        --output text \
-        --no-cli-pager)
-    
-    # Count subfolders (non-recursive) - handle null case
-    TOTAL_SUBFOLDERS=$(aws s3api list-objects-v2 \
-        --bucket "$BUCKET" \
-        --prefix "$FULL_FOLDER_PATH" \
-        --delimiter "/" \
-        --endpoint-url "$ENDPOINT_URL" \
-        --region auto \
-        --query 'length(CommonPrefixes || `[]`)' \
-        --output text \
-        --no-cli-pager)
-    
-    print_status "Total files: $TOTAL_OBJECTS"
-    print_status "Total subfolders: $TOTAL_SUBFOLDERS"
-    
-    if [[ "$RECURSIVE" == true ]]; then
-        print_status "Note: File count includes files in subfolders (recursive listing)"
+    # Skip counting for root listing (too expensive) or non-recursive when no specific folder
+    if [[ -z "$FULL_FOLDER_PATH" ]]; then
+        print_status "Counting skipped for root listing (too many files)"
+        
+        # Count subfolders (non-recursive) - handle null case
+        TOTAL_SUBFOLDERS=$(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" \
+            --prefix "$FULL_FOLDER_PATH" \
+            --delimiter "/" \
+            --endpoint-url "$ENDPOINT_URL" \
+            --region auto \
+            --query 'length(CommonPrefixes || `[]`)' \
+            --output text \
+            --no-cli-pager)
+        
+        print_status "Total root folders: $TOTAL_SUBFOLDERS"
+    else
+        # Count total objects - handle null case
+        TOTAL_OBJECTS=$(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" \
+            --prefix "$FULL_FOLDER_PATH" \
+            --endpoint-url "$ENDPOINT_URL" \
+            --region auto \
+            --query 'length(Contents || `[]`)' \
+            --output text \
+            --no-cli-pager)
+        
+        # Count subfolders (non-recursive) - handle null case
+        TOTAL_SUBFOLDERS=$(aws s3api list-objects-v2 \
+            --bucket "$BUCKET" \
+            --prefix "$FULL_FOLDER_PATH" \
+            --delimiter "/" \
+            --endpoint-url "$ENDPOINT_URL" \
+            --region auto \
+            --query 'length(CommonPrefixes || `[]`)' \
+            --output text \
+            --no-cli-pager)
+        
+        print_status "Total files: $TOTAL_OBJECTS"
+        print_status "Total subfolders: $TOTAL_SUBFOLDERS"
+        
+        if [[ "$RECURSIVE" == true ]]; then
+            print_status "Note: File count includes files in subfolders (recursive listing)"
+        fi
     fi
 else
     print_error "Failed to list folder contents"

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Wrapper script for find-gzip-files.js
-# Usage: ./find-gzip-files.sh <prefix>
-# Example: ./find-gzip-files.sh cmegroup/www/drafts
+# Script to find .hlx.page or .hlx.live references in HTML documents
+# Usage: ./find-hlx-ref.sh <prefix>
+# Example: ./find-hlx-ref.sh cmegroup/www/drafts
 
 set -e  # Exit on any error
 
@@ -26,9 +26,10 @@ show_usage() {
     echo "  prefix  Path prefix to search in the S3 bucket (required)"
     echo ""
     echo "Description:"
-    echo "  This script finds all files with gzip ContentEncoding in the S3 bucket."
-    echo "  It scans recursively through all files under the specified prefix."
-    echo "  As a bonus, it outputs ALL files to files.csv with metadata during traversal."
+    echo "  This script finds all HTML documents containing URLs with .hlx.page or .hlx.live domains"
+    echo "  It extracts and reports the full URLs (including paths) found in the HTML"
+    echo "  It scans recursively through all HTML files under the specified prefix."
+    echo "  Automatically ignores .da-versions and .trash folders."
     echo ""
     echo "Examples:"
     echo "  $0 cmegroup/www/drafts"
@@ -37,9 +38,9 @@ show_usage() {
     echo ""
     echo "Output:"
     echo "  - Summary statistics"
-    echo "  - list.txt: Gzip-encoded files only"
-    echo "  - files.csv: ALL files with metadata (path, size, last modified)"
-    echo "  - Simple list for batch processing"
+    echo "  - List of HTML files with .hlx references"
+    echo "  - Full URLs extracted from each file"
+    echo "  - Tab-delimited output file with all URLs"
 }
 
 # Get script directory
@@ -70,18 +71,19 @@ if ! command -v node &> /dev/null; then
 fi
 
 # Check if the Node.js script exists
-NODE_SCRIPT="$SCRIPT_DIR/find-gzip-files.js"
+NODE_SCRIPT="$SCRIPT_DIR/find-hlx-ref.js"
 if [[ ! -f "$NODE_SCRIPT" ]]; then
-    print_error "find-gzip-files.js not found at: $NODE_SCRIPT"
+    print_error "find-hlx-ref.js not found at: $NODE_SCRIPT"
     exit 1
 fi
 
 # Check if node_modules exists
 if [[ ! -d "$SCRIPT_DIR/node_modules" ]]; then
-    print_error "node_modules not found. Please run: npm install"
+    print_error "node_modules not found. Please run: cd find && npm install"
     exit 1
 fi
 
-# Run the Node.js script
+# Run the Node.js script with increased heap size (8GB) to handle large scans
 cd "$SCRIPT_DIR"
-node find-gzip-files.js "$PREFIX"
+node --max-old-space-size=8192 find-hlx-ref.js "$PREFIX"
+

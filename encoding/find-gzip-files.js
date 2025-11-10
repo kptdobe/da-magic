@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Find all files with gzip ContentEncoding in S3 bucket
+// Also outputs ALL files to files.csv with metadata during traversal (bonus!)
 // Usage: node find-gzip-files.js <prefix> [output-file]
 // Example: node find-gzip-files.js cmegroup/www/drafts
 // Example: node find-gzip-files.js cmegroup/www/drafts my-gzip-files.txt
 // Note: Automatically ignores .da-versions folders
+// Output: [output-file] = gzip files only, files.csv = all files with metadata (path, size, last modified)
 
 const { S3Client, ListObjectsV2Command, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
@@ -14,15 +16,19 @@ if (process.argv.length < 3) {
   console.error('Usage: node find-gzip-files.js <prefix> [output-file]');
   console.error('Example: node find-gzip-files.js cmegroup/www/drafts');
   console.error('Example: node find-gzip-files.js cmegroup/www/drafts my-gzip-files.txt');
+  console.error('');
+  console.error('Output: [output-file] = gzip files only, files.csv = all files with metadata');
   process.exit(1);
 }
 
 const bucket = 'aem-content';  // Hardcoded bucket name
 const prefix = process.argv[2];
 const outputFile = process.argv[3] || 'list.txt';
+const allFilesOutput = 'files.csv';  // CSV output file for all files with metadata
 
-// Create file stream for progressive output
-let outputStream = null;
+// Create file streams for progressive output
+let outputStream = null;  // For gzip-encoded files
+let allFilesStream = null;  // For all files CSV
 
 // Load environment variables from .dev.vars (relative to where script is run from)
 const loadEnvVars = () => {
@@ -189,6 +195,19 @@ async function processBatchImmediate(objects, batchSize = 50) {
   }
 }
 
+// Function to escape CSV field (handle commas and quotes)
+function escapeCSV(field) {
+  if (field === null || field === undefined) {
+    return '';
+  }
+  const str = String(field);
+  // If field contains comma, quote, or newline, wrap in quotes and escape quotes
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 // Function to check if a file has gzip encoding
 async function checkFileEncoding(bucket, key) {
   try {
@@ -202,6 +221,14 @@ async function checkFileEncoding(bucket, key) {
     
     stats.totalFiles++;
     
+    // Write all files to CSV with metadata
+    if (allFilesStream) {
+      const contentLength = metadata.ContentLength || 0;
+      const lastModified = metadata.LastModified ? metadata.LastModified.toISOString() : '';
+      // CSV format: path,contentLength,lastModified
+      allFilesStream.write(`${escapeCSV(key)},${contentLength},${escapeCSV(lastModified)}\n`);
+    }
+    
     if (contentEncoding === 'gzip') {
       stats.gzipFiles++;
       gzipFiles.push({
@@ -211,7 +238,7 @@ async function checkFileEncoding(bucket, key) {
         lastModified: metadata.LastModified
       });
       
-      // Write to output file immediately
+      // Write to gzip output file immediately
       if (outputStream) {
         outputStream.write(key + '\n');
       }
@@ -235,14 +262,23 @@ async function main() {
   console.log('='.repeat(60));
   console.log(`Bucket: ${bucket}`);
   console.log(`Prefix: ${prefix}`);
-  console.log(`Output file: ${outputFile}`);
+  console.log(`Gzip files output: ${outputFile}`);
+  console.log(`All files output: ${allFilesOutput}`);
   console.log('');
   
-  // Create output file stream
+  // Create output file streams
   outputStream = fs.createWriteStream(outputFile);
   outputStream.on('error', (err) => {
     console.error(`Error writing to ${outputFile}:`, err.message);
   });
+  
+  allFilesStream = fs.createWriteStream(allFilesOutput);
+  allFilesStream.on('error', (err) => {
+    console.error(`Error writing to ${allFilesOutput}:`, err.message);
+  });
+  
+  // Write CSV header
+  allFilesStream.write('FilePath,ContentLength,LastModified\n');
   
   try {
     // Process folder and subfolders recursively with parallel subfolder processing
@@ -300,10 +336,15 @@ async function main() {
       console.log('No gzip-encoded files found! ✓');
     }
     
-    // Close output stream
+    // Close output streams
     if (outputStream) {
       outputStream.end();
-      console.log(`\nFile list written to: ${outputFile}`);
+      console.log(`\nGzip files list written to: ${outputFile}`);
+    }
+    
+    if (allFilesStream) {
+      allFilesStream.end();
+      console.log(`All files CSV written to: ${allFilesOutput} (with metadata: path, size, last modified)`);
     }
     
   } catch (error) {
@@ -311,6 +352,9 @@ async function main() {
     console.error(error.stack);
     if (outputStream) {
       outputStream.end();
+    }
+    if (allFilesStream) {
+      allFilesStream.end();
     }
     process.exit(1);
   }
