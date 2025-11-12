@@ -228,6 +228,13 @@ After traversal, use `analyze.sh` to generate statistics:
 - **Files in `.da-versions` folders** (count, size, percentage)
 - **Empty files in `.da-versions`** (useful for finding issues)
 - **Files in `drafts` folders** (count, size, percentage, case-insensitive)
+- **Content files** (actual content excluding system folders)
+- **File type breakdown for each category**:
+  - HTML files (.html, .htm)
+  - JSON files (.json)
+  - Images (.jpg, .png, .gif, .webp, .svg, etc.)
+  - Videos (.mp4, .mov, .avi, .webm, etc.)
+  - Other files
 - **Performance metrics**
 
 ### Example Output:
@@ -243,10 +250,22 @@ Analyzing: files.csv
   Files:          2,221,018
   Total Size:     1.45 TB (1,592,345,678,912 bytes)
 
+  📄 HTML:           1,234,567 files (55.59%)  │  456.78 GB
+  📋 JSON:             345,678 files (15.56%)  │  234.56 GB
+  🖼️  Images:          456,789 files (20.57%)  │  567.89 GB
+  🎬 Videos:           123,456 files (5.56%)   │  234.56 GB
+  📦 Other:             60,528 files (2.72%)   │  98.67 GB
+
 🗑️  .trash FOLDERS
   Files:          12,345 (0.56% of total)
   Total Size:     8.92 GB (9,578,934,567 bytes)
   Size %:         0.60% of total storage
+
+  📄 HTML:               6,789 files (55.00%)  │  4.00 GB
+  📋 JSON:               2,345 files (19.00%)  │  2.50 GB
+  🖼️  Images:             2,111 files (17.10%)  │  1.50 GB
+  🎬 Videos:               800 files (6.48%)   │  800.00 MB
+  📦 Other:                300 files (2.43%)   │  200.00 MB
 
 📦 .da-versions FOLDERS
   Files:          445,678 (20.07% of total)
@@ -255,10 +274,34 @@ Analyzing: files.csv
   Empty files:    1,234
   Empty %:        0.28% of version files
 
+  📄 HTML:             234,567 files (52.64%)  │  123.45 GB
+  📋 JSON:              89,012 files (19.98%)  │  67.89 GB
+  🖼️  Images:            98,765 files (22.16%)  │  45.67 GB
+  🎬 Videos:            12,345 files (2.77%)   │  6.78 GB
+  📦 Other:             10,989 files (2.47%)   │  1.88 GB
+
 📝 DRAFTS FOLDERS
   Files:          45,123 (2.03% of total)
   Total Size:     12.34 GB (13,250,000,000 bytes)
   Size %:         0.83% of total storage
+
+  📄 HTML:              23,456 files (51.99%)  │  6.78 GB
+  📋 JSON:               8,901 files (19.73%)  │  3.45 GB
+  🖼️  Images:             9,876 files (21.89%)  │  1.89 GB
+  🎬 Videos:             1,234 files (2.73%)   │  345.00 MB
+  📦 Other:              1,656 files (3.67%)   │  234.00 MB
+
+📄 CONTENT FILES
+  Files:          1,717,872 (77.34% of total)
+  Total Size:     1.22 TB (1,341,727,767,556 bytes)
+  Size %:         82.01% of total storage
+  Note: Excludes .trash, .da-versions, and drafts folders
+
+  📄 HTML:             969,755 files (56.46%)  │  321.55 GB
+  📋 JSON:             245,420 files (14.29%)  │  160.72 GB
+  🖼️  Images:           346,037 files (20.14%)  │  518.83 GB
+  🎬 Videos:           109,077 files (6.35%)   │  227.05 GB
+  📦 Other:             47,583 files (2.77%)   │  96.35 GB
 
 ⏱️  PERFORMANCE
   Processing time: 12s
