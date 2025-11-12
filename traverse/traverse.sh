@@ -24,7 +24,7 @@ show_usage() {
     echo "Arguments:"
     echo "  prefix       Path prefix to traverse (required)"
     echo "  output-file  CSV output file (default: files.csv)"
-    echo "  shard-count  Number of concurrent shards (default: 16, valid: 1-256)"
+    echo "  shard-count  Number of concurrent shards (default: 17, valid: 1-256)"
     echo ""
     echo "Description:"
     echo "  Efficiently traverses S3 bucket using key sharding and concurrent pagination."
@@ -39,9 +39,10 @@ show_usage() {
     echo ""
     echo "Shard count guidelines:"
     echo "  - Small prefixes (<10K files): 1-8 shards"
-    echo "  - Medium prefixes (10K-100K): 8-16 shards"
-    echo "  - Large prefixes (100K-1M): 16-64 shards"
+    echo "  - Medium prefixes (10K-100K): 8-17 shards"
+    echo "  - Large prefixes (100K-1M): 17-64 shards"
     echo "  - Huge prefixes (>1M files): 64-256 shards"
+    echo "  - Note: 17 shards = optimal (1 catch-all + 16 hex chars 0-f)"
 }
 
 # Get script directory
@@ -62,7 +63,7 @@ fi
 
 PREFIX="$1"
 OUTPUT_FILE="${2:-files.csv}"
-SHARD_COUNT="${3:-16}"
+SHARD_COUNT="${3:-17}"
 
 # Check if Node.js is installed
 if ! command -v node &> /dev/null; then

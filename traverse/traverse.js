@@ -106,9 +106,6 @@ function generateShardPrefixes(basePrefix, count) {
     return [{ prefix: basePrefix, type: 'catch-all' }];
   }
   
-  // Reserve one shard for catch-all (files starting with ., _, capitals, etc.)
-  const hexShardCount = count - 1;
-  
   // Use hex characters for sharding (0-9, a-f)
   const hexChars = '0123456789abcdef';
   const shards = [];
@@ -117,18 +114,31 @@ function generateShardPrefixes(basePrefix, count) {
   // This catches files starting with: ., _, A-Z, and other non-hex characters
   shards.push({ prefix: basePrefix, type: 'catch-all' });
   
+  // Reserve one shard for catch-all
+  const hexShardCount = count - 1;
+  
   // Determine shard width based on count
-  // For 16 shards: single hex char (0-f) + 1 catch-all
-  // For 256 shards: two hex chars (00-ff) + 1 catch-all
+  // For <=17 shards: single hex char (0-f) + 1 catch-all
+  // For >17 shards: two hex chars (00-ff) + 1 catch-all
   if (hexShardCount <= 16) {
     // Single character sharding
-    const step = Math.ceil(16 / hexShardCount);
-    for (let i = 0; i < 16; i += step) {
-      const shardPrefix = basePrefix + hexChars[i];
-      shards.push({ prefix: shardPrefix, type: 'hex' });
+    // Distribute hex characters evenly
+    if (hexShardCount >= 16) {
+      // Use all 16 hex characters
+      for (let i = 0; i < 16; i++) {
+        const shardPrefix = basePrefix + hexChars[i];
+        shards.push({ prefix: shardPrefix, type: 'hex' });
+      }
+    } else {
+      // Distribute fewer shards evenly across hex space
+      for (let i = 0; i < hexShardCount; i++) {
+        const charIndex = Math.floor((i * 16) / hexShardCount);
+        const shardPrefix = basePrefix + hexChars[charIndex];
+        shards.push({ prefix: shardPrefix, type: 'hex' });
+      }
     }
   } else {
-    // Two character sharding
+    // Two character sharding for >17 shards
     const step = Math.ceil(256 / hexShardCount);
     for (let i = 0; i < 256; i += step) {
       const char1 = hexChars[Math.floor(i / 16)];

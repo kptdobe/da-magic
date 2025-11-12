@@ -95,11 +95,11 @@ Choose shard count based on estimated file count:
 | Files | Recommended Shards | Reasoning |
 |-------|-------------------|-----------|
 | <10K | 1-8 | Low overhead, fast enough |
-| 10K-100K | 8-16 | Good balance |
-| 100K-1M | 16-64 | Maximum parallelism |
+| 10K-100K | 8-17 | Good balance |
+| 100K-1M | 17-64 | Maximum parallelism |
 | >1M | 64-256 | Distribute load |
 
-**Rule of thumb**: Start with 16 shards, increase if listing is slow.
+**Rule of thumb**: Start with 17 shards for full coverage (1 catch-all + 16 hex chars), increase if listing is slow.
 
 ## Output Format
 
@@ -159,15 +159,15 @@ kptdobe/daplayground/test.html,8956,2024-11-06T15:20:30.456Z
 The tool shows real-time progress:
 
 ```
-Generated 16 shard prefixes
+Generated 17 shard prefixes
   - 1 catch-all shard (for ., _, capitals, etc.)
-  - 15 hex shards (0-9, a-f)
+  - 16 hex shards (0-9, a-f)
 Shard prefixes: kptdobe/[^0-9a-f]*, kptdobe/0*, kptdobe/1*, ..., kptdobe/f*
 
 Starting traversal...
 
-[10.5s] Shard 3: 1250 keys | Total: 18500 keys | Active: 16 | Completed: 0/16
-[20.2s] Shard 7: 2100 keys | Total: 35200 keys | Active: 14 | Completed: 2/16
+[10.5s] Shard 3: 1250 keys | Total: 18500 keys | Active: 17 | Completed: 0/17
+[20.2s] Shard 7: 2100 keys | Total: 35200 keys | Active: 15 | Completed: 2/17
 ✓ Shard 1 (kptdobe/[^0-9a-f]*): 123 keys in 8.12s  (catch-all)
 ✓ Shard 2 (kptdobe/0*): 4523 keys in 25.32s
 ✓ Shard 6 (kptdobe/4*): 3891 keys in 26.18s
@@ -194,9 +194,11 @@ Throughput: 1,268 keys/second
 
 ### Sharding Algorithm
 
-1. **Catch-all shard**: Lists prefix without appending chars (catches ., _, capitals)
-2. **Single-level hex sharding** (≤16 total shards): Append one hex char (0-f)
-3. **Two-level hex sharding** (17-256 total shards): Append two hex chars (00-ff)
+1. **Catch-all shard**: Lists prefix without appending chars (catches ., _, capitals, etc.)
+2. **Single-level hex sharding** (≤17 total shards): Append one hex char (0-f)
+   - With 17 shards: 1 catch-all + all 16 hex chars (0-9, a-f) = full coverage
+   - With <17 shards: Evenly distributed subset of hex chars
+3. **Two-level hex sharding** (>17 shards): Append two hex chars (00-ff)
 
 The catch-all shard filters out keys that start with hex characters to avoid duplicates.
 
