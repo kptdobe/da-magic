@@ -1,0 +1,16 @@
+{
+  "name": "da-magic-traverse",
+  "version": "1.0.0",
+  "description": "Efficient S3 key sharding traversal tool",
+  "main": "traverse.js",
+  "scripts": {
+    "start": "node traverse.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.450.0"
+  },
+  "keywords": ["s3", "traverse", "sharding", "parallel"],
+  "author": "",
+  "license": "MIT"
+}
+
