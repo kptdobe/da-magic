@@ -299,6 +299,16 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     
     const versions = await s3Client.send(listCommand);
     
+    // Check if versions folder exists and has contents
+    if (!versions.Contents || versions.Contents.length === 0) {
+      return res.json({
+        success: true,
+        versions: [],
+        versionsPath: versionsPath,
+        message: 'No versions found for this document'
+      });
+    }
+    
     // Get metadata for all versions in parallel
     const versionObjects = versions.Contents.filter(obj => obj.Key !== versionsPath);
     

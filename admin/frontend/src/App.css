@@ -419,6 +419,17 @@
   gap: 10px;
 }
 
+.no-versions-message {
+  padding: 30px;
+  text-align: center;
+  background-color: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  color: #6c757d;
+  font-size: 16px;
+  margin-top: 10px;
+}
+
 .versions-header {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr 1fr;

@@ -340,7 +340,7 @@ function App() {
           </div>
         )}
 
-        {versions.length > 0 && (
+        {documentData && (
           <div className="versions-container">
             <div className="versions-section">
               <h2>Versions ({versions.length})</h2>

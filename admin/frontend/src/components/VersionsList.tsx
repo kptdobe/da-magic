@@ -28,7 +28,12 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview,
         <div className="version-header-actions">Actions</div>
       </div>
       
-      {versions.map((version) => {
+      {versions.length === 0 ? (
+        <div className="no-versions-message">
+          📝 No versions found for this document
+        </div>
+      ) : (
+        versions.map((version) => {
         const isSelected = selectedVersionPath === version.key;
         return (
           <div 
@@ -57,7 +62,8 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, onVersionPreview,
             </div>
           </div>
         );
-      })}
+      })
+      )}
     </div>
   );
 };
