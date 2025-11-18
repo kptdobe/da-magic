@@ -70,6 +70,7 @@ get_type_data() {
 display_type_breakdown() {
     local category=$1
     local total_count=$2
+    local indent="${3:-    }"
     
     echo ""
     
@@ -92,12 +93,12 @@ display_type_breakdown() {
     local video_size_hr=$(human_readable_size $video_size)
     local other_size_hr=$(human_readable_size $other_size)
     
-    # Calculate percentages
-    local html_pct=0
-    local json_pct=0
-    local image_pct=0
-    local video_pct=0
-    local other_pct=0
+    # Calculate percentages with proper formatting
+    local html_pct="0.00"
+    local json_pct="0.00"
+    local image_pct="0.00"
+    local video_pct="0.00"
+    local other_pct="0.00"
     
     if [[ $total_count -gt 0 ]]; then
         html_pct=$(echo "scale=2; ($html_count * 100) / $total_count" | bc)
@@ -107,12 +108,12 @@ display_type_breakdown() {
         other_pct=$(echo "scale=2; ($other_count * 100) / $total_count" | bc)
     fi
     
-    # Display breakdown
-    print_stat "  📄 HTML:      $(printf "%'10d" $html_count) files (${html_pct}%)  │  $html_size_hr"
-    print_stat "  📋 JSON:      $(printf "%'10d" $json_count) files (${json_pct}%)  │  $json_size_hr"
-    print_stat "  🖼️  Images:    $(printf "%'10d" $image_count) files (${image_pct}%)  │  $image_size_hr"
-    print_stat "  🎬 Videos:    $(printf "%'10d" $video_count) files (${video_pct}%)  │  $video_size_hr"
-    print_stat "  📦 Other:     $(printf "%'10d" $other_count) files (${other_pct}%)  │  $other_size_hr"
+    # Display breakdown with custom formatting
+    echo -e "${indent}${GREEN}📄 HTML:       $(printf "%'d" $html_count) files (${html_pct}%)  │  $html_size_hr${NC}"
+    echo -e "${indent}${GREEN}📋 JSON:          $(printf "%'d" $json_count) files (${json_pct}%)  │  $json_size_hr${NC}"
+    echo -e "${indent}${GREEN}🖼️  Images:        $(printf "%'d" $image_count) files (${image_pct}%)  │  $image_size_hr${NC}"
+    echo -e "${indent}${GREEN}🎬 Videos:        $(printf "%'d" $video_count) files (${video_pct}%)  │  $video_size_hr${NC}"
+    echo -e "${indent}${GREEN}📦 Other:          $(printf "%'d" $other_count) files (${other_pct}%)  │  $other_size_hr${NC}"
 }
 
 # Function to show usage
@@ -273,10 +274,17 @@ function get_file_type(filepath) {
         type_size["drafts", ftype] += size
     }
     
-    # Content files (not in any system folder)
+    # Content files - track multiple categories
+    # content_all = everything except .da-versions
+    if (!is_versions) {
+        type_count["content_all", ftype]++
+        type_size["content_all", ftype] += size
+    }
+    
+    # content_clean = excludes versions, drafts, and trash
     if (!is_trash && !is_versions && !is_drafts) {
-        type_count["content", ftype]++
-        type_size["content", ftype] += size
+        type_count["content_clean", ftype]++
+        type_size["content_clean", ftype] += size
     }
 }
 END {
@@ -292,7 +300,8 @@ END {
     categories[1] = "trash"
     categories[2] = "versions"
     categories[3] = "drafts"
-    categories[4] = "content"
+    categories[4] = "content_all"
+    categories[5] = "content_clean"
     
     types[0] = "html"
     types[1] = "json"
@@ -300,7 +309,7 @@ END {
     types[3] = "video"
     types[4] = "other"
     
-    for (c = 0; c < 5; c++) {
+    for (c = 0; c < 6; c++) {
         for (t = 0; t < 5; t++) {
             cat = categories[c]
             typ = types[t]
@@ -340,58 +349,73 @@ TRASH_SIZE_HR=$(human_readable_size $TRASH_SIZE)
 VERSIONS_SIZE_HR=$(human_readable_size $VERSIONS_SIZE)
 DRAFTS_SIZE_HR=$(human_readable_size $DRAFTS_SIZE)
 
-# Calculate content files (total minus system folders)
-CONTENT_COUNT=$((TOTAL_COUNT - TRASH_COUNT - VERSIONS_COUNT - DRAFTS_COUNT))
-CONTENT_SIZE=$((TOTAL_SIZE - TRASH_SIZE - VERSIONS_SIZE - DRAFTS_SIZE))
-CONTENT_SIZE_HR=$(human_readable_size $CONTENT_SIZE)
+# Calculate content_all (total minus .da-versions)
+CONTENT_ALL_COUNT=$((TOTAL_COUNT - VERSIONS_COUNT))
+CONTENT_ALL_SIZE=$((TOTAL_SIZE - VERSIONS_SIZE))
+CONTENT_ALL_SIZE_HR=$(human_readable_size $CONTENT_ALL_SIZE)
+
+# Calculate content_clean (excludes versions, drafts, trash)
+CONTENT_CLEAN_COUNT=$((TOTAL_COUNT - VERSIONS_COUNT - DRAFTS_COUNT - TRASH_COUNT))
+CONTENT_CLEAN_SIZE=$((TOTAL_SIZE - VERSIONS_SIZE - DRAFTS_SIZE - TRASH_SIZE))
+CONTENT_CLEAN_SIZE_HR=$(human_readable_size $CONTENT_CLEAN_SIZE)
 
 # Calculate percentages
 if [[ $TOTAL_COUNT -gt 0 ]]; then
-    TRASH_PERCENT=$(echo "scale=2; ($TRASH_COUNT * 100) / $TOTAL_COUNT" | bc)
     VERSIONS_PERCENT=$(echo "scale=2; ($VERSIONS_COUNT * 100) / $TOTAL_COUNT" | bc)
-    DRAFTS_PERCENT=$(echo "scale=2; ($DRAFTS_COUNT * 100) / $TOTAL_COUNT" | bc)
-    CONTENT_PERCENT=$(echo "scale=2; ($CONTENT_COUNT * 100) / $TOTAL_COUNT" | bc)
+    CONTENT_ALL_PERCENT=$(echo "scale=2; ($CONTENT_ALL_COUNT * 100) / $TOTAL_COUNT" | bc)
 else
-    TRASH_PERCENT=0
     VERSIONS_PERCENT=0
-    DRAFTS_PERCENT=0
-    CONTENT_PERCENT=0
+    CONTENT_ALL_PERCENT=0
 fi
 
 if [[ $TOTAL_SIZE -gt 0 ]]; then
-    TRASH_SIZE_PERCENT=$(echo "scale=2; ($TRASH_SIZE * 100) / $TOTAL_SIZE" | bc)
     VERSIONS_SIZE_PERCENT=$(echo "scale=2; ($VERSIONS_SIZE * 100) / $TOTAL_SIZE" | bc)
-    DRAFTS_SIZE_PERCENT=$(echo "scale=2; ($DRAFTS_SIZE * 100) / $TOTAL_SIZE" | bc)
-    CONTENT_SIZE_PERCENT=$(echo "scale=2; ($CONTENT_SIZE * 100) / $TOTAL_SIZE" | bc)
+    CONTENT_ALL_SIZE_PERCENT=$(echo "scale=2; ($CONTENT_ALL_SIZE * 100) / $TOTAL_SIZE" | bc)
 else
-    TRASH_SIZE_PERCENT=0
     VERSIONS_SIZE_PERCENT=0
+    CONTENT_ALL_SIZE_PERCENT=0
+fi
+
+# Percentages relative to content_all
+if [[ $CONTENT_ALL_COUNT -gt 0 ]]; then
+    CONTENT_CLEAN_PERCENT=$(echo "scale=2; ($CONTENT_CLEAN_COUNT * 100) / $CONTENT_ALL_COUNT" | bc)
+    DRAFTS_PERCENT=$(echo "scale=2; ($DRAFTS_COUNT * 100) / $CONTENT_ALL_COUNT" | bc)
+    TRASH_PERCENT=$(echo "scale=2; ($TRASH_COUNT * 100) / $CONTENT_ALL_COUNT" | bc)
+else
+    CONTENT_CLEAN_PERCENT=0
+    DRAFTS_PERCENT=0
+    TRASH_PERCENT=0
+fi
+
+if [[ $CONTENT_ALL_SIZE -gt 0 ]]; then
+    CONTENT_CLEAN_SIZE_PERCENT=$(echo "scale=2; ($CONTENT_CLEAN_SIZE * 100) / $CONTENT_ALL_SIZE" | bc)
+    DRAFTS_SIZE_PERCENT=$(echo "scale=2; ($DRAFTS_SIZE * 100) / $CONTENT_ALL_SIZE" | bc)
+    TRASH_SIZE_PERCENT=$(echo "scale=2; ($TRASH_SIZE * 100) / $CONTENT_ALL_SIZE" | bc)
+else
+    CONTENT_CLEAN_SIZE_PERCENT=0
     DRAFTS_SIZE_PERCENT=0
-    CONTENT_SIZE_PERCENT=0
+    TRASH_SIZE_PERCENT=0
 fi
 
 # Display results
+echo ""
 print_header "RESULTS"
+echo ""
 print_header "================================================================"
+echo ""
 echo ""
 
 # Total stats
 print_header "📊 TOTAL"
+echo ""
 print_stat "Files:          $(printf "%'d" $TOTAL_COUNT)"
 print_stat "Total Size:     $TOTAL_SIZE_HR ($(printf "%'d" $TOTAL_SIZE) bytes)"
 display_type_breakdown "total" $TOTAL_COUNT
 echo ""
 
-# Trash stats
-print_header "🗑️  .trash FOLDERS"
-print_stat "Files:          $(printf "%'d" $TRASH_COUNT) (${TRASH_PERCENT}% of total)"
-print_stat "Total Size:     $TRASH_SIZE_HR ($(printf "%'d" $TRASH_SIZE) bytes)"
-print_stat "Size %:         ${TRASH_SIZE_PERCENT}% of total storage"
-display_type_breakdown "trash" $TRASH_COUNT
-echo ""
-
 # Versions stats
 print_header "📦 .da-versions FOLDERS"
+echo ""
 print_stat "Files:          $(printf "%'d" $VERSIONS_COUNT) (${VERSIONS_PERCENT}% of total)"
 print_stat "Total Size:     $VERSIONS_SIZE_HR ($(printf "%'d" $VERSIONS_SIZE) bytes)"
 print_stat "Size %:         ${VERSIONS_SIZE_PERCENT}% of total storage"
@@ -403,21 +427,42 @@ fi
 display_type_breakdown "versions" $VERSIONS_COUNT
 echo ""
 
-# Drafts stats
-print_header "📝 DRAFTS FOLDERS"
-print_stat "Files:          $(printf "%'d" $DRAFTS_COUNT) (${DRAFTS_PERCENT}% of total)"
-print_stat "Total Size:     $DRAFTS_SIZE_HR ($(printf "%'d" $DRAFTS_SIZE) bytes)"
-print_stat "Size %:         ${DRAFTS_SIZE_PERCENT}% of total storage"
-display_type_breakdown "drafts" $DRAFTS_COUNT
+# Content ALL (total minus .da-versions)
+print_header "📄 CONTENT (ALL)"
+echo ""
+print_stat "Files:          $(printf "%'d" $CONTENT_ALL_COUNT) (${CONTENT_ALL_PERCENT}% of total)"
+print_stat "Total Size:     $CONTENT_ALL_SIZE_HR ($(printf "%'d" $CONTENT_ALL_SIZE) bytes)"
+print_stat "Size %:         ${CONTENT_ALL_SIZE_PERCENT}% of total storage"
+echo -e "${CYAN}Note: Total minus .da-versions (includes drafts and trash)${NC}"
+display_type_breakdown "content_all" $CONTENT_ALL_COUNT
 echo ""
 
-# Content files (excluding system folders)
-print_header "📄 CONTENT FILES"
-print_stat "Files:          $(printf "%'d" $CONTENT_COUNT) (${CONTENT_PERCENT}% of total)"
-print_stat "Total Size:     $CONTENT_SIZE_HR ($(printf "%'d" $CONTENT_SIZE) bytes)"
-print_stat "Size %:         ${CONTENT_SIZE_PERCENT}% of total storage"
-print_info "Note: Excludes .trash, .da-versions, and drafts folders"
-display_type_breakdown "content" $CONTENT_COUNT
+# Content Clean (sub-section)
+echo -e "${BOLD}${BLUE}  ├─ 📝 Content Files (Clean)${NC}"
+echo ""
+print_stat "  Files:        $(printf "%'d" $CONTENT_CLEAN_COUNT) (${CONTENT_CLEAN_PERCENT}% of content)"
+print_stat "  Total Size:   $CONTENT_CLEAN_SIZE_HR ($(printf "%'d" $CONTENT_CLEAN_SIZE) bytes)"
+print_stat "  Size %:       ${CONTENT_CLEAN_SIZE_PERCENT}% of content storage"
+echo -e "${CYAN}Note: Excludes drafts and trash${NC}"
+display_type_breakdown "content_clean" $CONTENT_CLEAN_COUNT "    "
+echo ""
+
+# Drafts (sub-section)
+echo -e "${BOLD}${BLUE}  ├─ 📝 Drafts${NC}"
+echo ""
+print_stat "  Files:        $(printf "%'d" $DRAFTS_COUNT) (${DRAFTS_PERCENT}% of content)"
+print_stat "  Total Size:   $DRAFTS_SIZE_HR ($(printf "%'d" $DRAFTS_SIZE) bytes)"
+print_stat "  Size %:       ${DRAFTS_SIZE_PERCENT}% of content storage"
+display_type_breakdown "drafts" $DRAFTS_COUNT "    "
+echo ""
+
+# Trash (sub-section)
+echo -e "${BOLD}${BLUE}  └─ 🗑️  Trash${NC}"
+echo ""
+print_stat "  Files:        $(printf "%'d" $TRASH_COUNT) (${TRASH_PERCENT}% of content)"
+print_stat "  Total Size:   $TRASH_SIZE_HR ($(printf "%'d" $TRASH_SIZE) bytes)"
+print_stat "  Size %:       ${TRASH_SIZE_PERCENT}% of content storage"
+display_type_breakdown "trash" $TRASH_COUNT "    "
 echo ""
 
 # Processing time
