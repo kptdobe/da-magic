@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to find .hlx.page or .hlx.live references in HTML documents
+# Script to find .hlx.page or .hlx.live references in HTML and JSON documents
 # Usage: ./find-hlx-ref.sh <prefix>
 # Example: ./find-hlx-ref.sh cmegroup/www/drafts
 
@@ -26,9 +26,9 @@ show_usage() {
     echo "  prefix  Path prefix to search in the S3 bucket (required)"
     echo ""
     echo "Description:"
-    echo "  This script finds all HTML documents containing URLs with .hlx.page or .hlx.live domains"
-    echo "  It extracts and reports the full URLs (including paths) found in the HTML"
-    echo "  It scans recursively through all HTML files under the specified prefix."
+    echo "  This script finds all HTML and JSON documents containing URLs with .hlx.page or .hlx.live domains"
+    echo "  It extracts and reports the full URLs (including paths) found in the files"
+    echo "  It scans through all HTML (.html, .htm) and JSON (.json) files under the specified prefix."
     echo "  Automatically ignores .da-versions and .trash folders."
     echo ""
     echo "Examples:"
@@ -38,7 +38,7 @@ show_usage() {
     echo ""
     echo "Output:"
     echo "  - Summary statistics"
-    echo "  - List of HTML files with .hlx references"
+    echo "  - List of files with .hlx references"
     echo "  - Full URLs extracted from each file"
     echo "  - Tab-delimited output file with all URLs"
 }

@@ -3,20 +3,30 @@
 // Usage: node traverse.js <prefix> [output-file] [shard-count]
 // Example: node traverse.js /kptdobe files.csv 16
 
-const { S3Client, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { ListObjectsV2Command } = require('@aws-sdk/client-s3');
 const fs = require('fs');
-const path = require('path');
+const {
+  loadEnvVars,
+  createS3Client,
+  generateShardPrefixes,
+  filterObjectsByShard,
+  listShardObjects,
+  displayShardInfo,
+  formatShardLabel
+} = require('./s3-utils.js');
 
 // Parse command line arguments
 if (process.argv.length < 3) {
-  console.error('Usage: node traverse.js <prefix> [output-file] [shard-count]');
-  console.error('Example: node traverse.js /kptdobe files.csv 16');
-  console.error('Example: node traverse.js kptdobe/daplayground output.csv 8');
+  console.error('Usage: node traverse.js <prefix> [output-file]');
+  console.error('Example: node traverse.js /kptdobe files.csv');
+  console.error('Example: node traverse.js kptdobe/daplayground output.csv');
   console.error('');
   console.error('Arguments:');
   console.error('  prefix       - Path prefix to traverse (e.g., /kptdobe or kptdobe/subfolder)');
   console.error('  output-file  - CSV output file (default: files.csv)');
-  console.error('  shard-count  - Number of concurrent shards (default: 16, valid: 1-256)');
+  console.error('');
+  console.error('Note: Always uses 63 concurrent shards for complete coverage');
+  console.error('      (1 catch-all + 62 alphanumeric: 0-9, A-Z, a-z)');
   process.exit(1);
 }
 
@@ -29,62 +39,12 @@ if (prefix.startsWith('/')) {
 }
 
 const outputFile = process.argv[3] || 'files.csv';
-const shardCount = parseInt(process.argv[4] || '16', 10);
+// Note: shardCount parameter is kept for API compatibility but always uses 63 internally  
+const shardCount = 63; // Always use 63 for complete coverage (1 catch-all + 62 alphanumeric)
 
-if (shardCount < 1 || shardCount > 256) {
-  console.error('Error: shard-count must be between 1 and 256');
-  process.exit(1);
-}
-
-// Load environment variables
-const loadEnvVars = () => {
-  const possiblePaths = [
-    path.join(__dirname, '../.dev.vars'),
-    path.join(__dirname, '.dev.vars'),
-    path.join(process.cwd(), '.dev.vars'),
-    path.join(process.cwd(), '../.dev.vars'),
-  ];
-  
-  let envPath = null;
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      envPath = p;
-      break;
-    }
-  }
-  
-  if (!envPath) {
-    throw new Error('.dev.vars file not found. Tried: ' + possiblePaths.join(', '));
-  }
-  
-  const envContent = fs.readFileSync(envPath, 'utf8');
-  const envVars = {};
-  
-  envContent.split('\n').forEach(line => {
-    if (line.trim() && !line.startsWith('#')) {
-      const [key, value] = line.split('=');
-      if (key && value) {
-        envVars[key.trim()] = value.trim();
-      }
-    }
-  });
-  
-  return envVars;
-};
-
+// Initialize S3 client
 const envVars = loadEnvVars();
-
-// Configure S3 client
-const s3Client = new S3Client({
-  credentials: {
-    accessKeyId: envVars.S3_ACCESS_KEY_ID,
-    secretAccessKey: envVars.S3_SECRET_ACCESS_KEY,
-  },
-  endpoint: envVars.S3_DEF_URL,
-  forcePathStyle: true,
-  region: 'auto',
-  maxAttempts: 3
-});
+const s3Client = createS3Client(envVars);
 
 // Statistics
 const stats = {
@@ -98,58 +58,6 @@ const stats = {
 
 // Create output stream
 let outputStream = null;
-
-// Generate shard prefixes using hex characters for even distribution
-// Plus a catch-all shard for files starting with non-hex characters
-function generateShardPrefixes(basePrefix, count) {
-  if (count === 1) {
-    return [{ prefix: basePrefix, type: 'catch-all' }];
-  }
-  
-  // Use hex characters for sharding (0-9, a-f)
-  const hexChars = '0123456789abcdef';
-  const shards = [];
-  
-  // Add catch-all shard first (no additional prefix character)
-  // This catches files starting with: ., _, A-Z, and other non-hex characters
-  shards.push({ prefix: basePrefix, type: 'catch-all' });
-  
-  // Reserve one shard for catch-all
-  const hexShardCount = count - 1;
-  
-  // Determine shard width based on count
-  // For <=17 shards: single hex char (0-f) + 1 catch-all
-  // For >17 shards: two hex chars (00-ff) + 1 catch-all
-  if (hexShardCount <= 16) {
-    // Single character sharding
-    // Distribute hex characters evenly
-    if (hexShardCount >= 16) {
-      // Use all 16 hex characters
-      for (let i = 0; i < 16; i++) {
-        const shardPrefix = basePrefix + hexChars[i];
-        shards.push({ prefix: shardPrefix, type: 'hex' });
-      }
-    } else {
-      // Distribute fewer shards evenly across hex space
-      for (let i = 0; i < hexShardCount; i++) {
-        const charIndex = Math.floor((i * 16) / hexShardCount);
-        const shardPrefix = basePrefix + hexChars[charIndex];
-        shards.push({ prefix: shardPrefix, type: 'hex' });
-      }
-    }
-  } else {
-    // Two character sharding for >17 shards
-    const step = Math.ceil(256 / hexShardCount);
-    for (let i = 0; i < 256; i += step) {
-      const char1 = hexChars[Math.floor(i / 16)];
-      const char2 = hexChars[i % 16];
-      const shardPrefix = basePrefix + char1 + char2;
-      shards.push({ prefix: shardPrefix, type: 'hex' });
-    }
-  }
-  
-  return shards.slice(0, count);
-}
 
 // List all keys in a shard with pagination
 async function listShard(shard, shardId) {
@@ -174,17 +82,8 @@ async function listShard(shard, shardId) {
       const response = await s3Client.send(command);
       
       if (response.Contents && response.Contents.length > 0) {
-        // Filter keys for catch-all shard to avoid duplicates with hex shards
-        let keysToProcess = response.Contents;
-        
-        if (isCatchAll) {
-          // For catch-all shard, only process keys that don't start with hex characters
-          const hexPattern = /^[0-9a-f]/i;
-          keysToProcess = response.Contents.filter(obj => {
-            const keyAfterPrefix = obj.Key.substring(shardPrefix.length);
-            return keyAfterPrefix && !hexPattern.test(keyAfterPrefix);
-          });
-        }
+        // Filter keys for this shard to avoid duplicates
+        const keysToProcess = filterObjectsByShard(response.Contents, shard, prefix);
         
         shardKeyCount += keysToProcess.length;
         stats.totalKeys += keysToProcess.length;
@@ -216,14 +115,14 @@ async function listShard(shard, shardId) {
     stats.activeShards--;
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const shardLabel = isCatchAll ? `${shardPrefix}[^0-9a-f]*` : `${shardPrefix}*`;
+    const shardLabel = formatShardLabel(shard);
     console.log(`✓ Shard ${shardId} (${shardLabel}): ${shardKeyCount} keys in ${duration}s`);
     
     return shardKeyCount;
     
   } catch (error) {
     stats.activeShards--;
-    const shardLabel = isCatchAll ? `${shardPrefix}[^0-9a-f]*` : `${shardPrefix}*`;
+    const shardLabel = formatShardLabel(shard);
     console.error(`✗ Shard ${shardId} (${shardLabel}) failed: ${error.message}`);
     return 0;
   }
@@ -237,7 +136,7 @@ async function main() {
   console.log(`Bucket: ${bucket}`);
   console.log(`Prefix: ${prefix}`);
   console.log(`Output: ${outputFile}`);
-  console.log(`Shards: ${shardCount} concurrent`);
+  console.log(`Shards: 63 concurrent (complete coverage)`);
   console.log('');
   
   // Create output stream with CSV header
@@ -251,12 +150,8 @@ async function main() {
   try {
     // Generate shard prefixes
     const shards = generateShardPrefixes(prefix, shardCount);
-    console.log(`Generated ${shards.length} shard prefixes`);
-    const catchAllCount = shards.filter(s => s.type === 'catch-all').length;
-    const hexCount = shards.filter(s => s.type === 'hex').length;
-    console.log(`  - ${catchAllCount} catch-all shard (for ., _, capitals, etc.)`);
-    console.log(`  - ${hexCount} hex shards (0-9, a-f)`);
-    console.log('Shard prefixes:', shards.map(s => s.type === 'catch-all' ? s.prefix + '[^0-9a-f]*' : s.prefix + '*').join(', '));
+    displayShardInfo(shards);
+    
     console.log('');
     console.log('Starting traversal...');
     console.log('');

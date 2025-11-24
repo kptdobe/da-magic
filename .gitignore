@@ -5,6 +5,6 @@
 .env.local
 .dev.vars
 node_modules
-.cache
+.cache*
 *.txt
 .DS_Store

@@ -162,11 +162,19 @@ mkdir -p "$CACHE_DIR"
 print_status "Cache directory: $CACHE_DIR"
 
 # Read all files into array
+print_status "Loading file list..."
 files=()
+line_count=0
 while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" ]] && continue
     files+=("$line")
+    line_count=$((line_count + 1))
+    # Show progress every 10000 lines
+    if (( line_count % 10000 == 0 )); then
+        echo -ne "\r${BLUE}[INFO]${NC} Loaded $line_count files..."
+    fi
 done < "$FILE_LIST"
+echo -ne "\r"  # Clear the progress line
 
 TOTAL_FILES=${#files[@]}
 print_status "Processing $TOTAL_FILES files from $FILE_LIST"

@@ -1,20 +1,39 @@
 #!/usr/bin/env node
-// Find all HTML documents containing URLs with .hlx.page or .hlx.live domains
-// Extracts and reports the full URLs (including paths) found in the HTML
-// Usage: node find-hlx-ref.js <prefix> [output-file]
+// Find all HTML and JSON documents containing URLs with .hlx.page or .hlx.live domains
+// Extracts and reports the full URLs (including paths) found in the files
+// Usage: node find-hlx-ref.js <prefix> [output-file] [shard-count]
 // Example: node find-hlx-ref.js cmegroup/www/drafts
-// Example: node find-hlx-ref.js cmegroup/www/drafts hlx-references.txt
+// Example: node find-hlx-ref.js cmegroup/www/drafts hlx-references.txt 16
 // Note: Automatically ignores .da-versions and .trash folders
 
-const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
-const path = require('path');
+const {
+  loadEnvVars,
+  createS3Client,
+  generateShardPrefixes,
+  filterObjectsByShard,
+  listShardObjects,
+  displayShardInfo,
+  formatShardLabel
+} = require('../traverse/s3-utils.js');
 
 // Parse command line arguments
 if (process.argv.length < 3) {
   console.error('Usage: node find-hlx-ref.js <prefix> [output-file]');
   console.error('Example: node find-hlx-ref.js cmegroup/www/drafts');
   console.error('Example: node find-hlx-ref.js cmegroup/www/drafts hlx-references.txt');
+  console.error('');
+  console.error('Arguments:');
+  console.error('  prefix       - Path prefix to search (e.g., cmegroup/www/drafts)');
+  console.error('  output-file  - Output file for results (default: hlx-references.txt)');
+  console.error('');
+  console.error('Note: Always uses 63 concurrent shards for complete coverage');
+  console.error('      (1 catch-all + 62 alphanumeric: 0-9, A-Z, a-z)');
+  console.error('');
+  console.error('Description:');
+  console.error('  Searches HTML (.html, .htm) and JSON (.json) files for .hlx.page and .hlx.live URLs');
+  console.error('  Automatically ignores .da-versions and .trash folders');
   process.exit(1);
 }
 
@@ -25,73 +44,32 @@ if (prefix.startsWith('/')) {
   prefix = prefix.substring(1);
 }
 const outputFile = process.argv[3] || 'hlx-references.txt';
+// Note: shardCount parameter is kept for API compatibility but always uses 63 internally
+const shardCount = 63; // Always use 63 for complete coverage (1 catch-all + 62 alphanumeric)
 
 // Create file stream for progressive output
 let outputStream = null;
 
-// Load environment variables from .dev.vars (relative to where script is run from)
-const loadEnvVars = () => {
-  // Try multiple possible locations
-  const possiblePaths = [
-    path.join(__dirname, '../.dev.vars'),               // From find folder to root
-    path.join(__dirname, '../../.dev.vars'),            // From find folder up two levels
-    path.join(__dirname, '../encoding/.dev.vars'),      // From find folder to encoding
-    path.join(process.cwd(), '.dev.vars'),              // From current directory
-    path.join(process.cwd(), '../.dev.vars'),           // From current directory parent
-    path.join(process.cwd(), '../../.dev.vars')         // From current directory grandparent
-  ];
-  
-  let envPath = null;
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      envPath = p;
-      break;
-    }
-  }
-  
-  if (!envPath) {
-    throw new Error('.dev.vars file not found. Tried: ' + possiblePaths.join(', '));
-  }
-  
-  const envContent = fs.readFileSync(envPath, 'utf8');
-  const envVars = {};
-  
-  envContent.split('\n').forEach(line => {
-    if (line.trim() && !line.startsWith('#')) {
-      const [key, value] = line.split('=');
-      if (key && value) {
-        envVars[key.trim()] = value.trim();
-      }
-    }
-  });
-  
-  return envVars;
-};
-
+// Initialize S3 client
 const envVars = loadEnvVars();
-
-// Configure S3 client with higher connection limits
-const s3Client = new S3Client({
-  credentials: {
-    accessKeyId: envVars.S3_ACCESS_KEY_ID,
-    secretAccessKey: envVars.S3_SECRET_ACCESS_KEY,
-  },
-  endpoint: envVars.S3_DEF_URL,
-  forcePathStyle: true,
-  region: 'auto',
-  maxAttempts: 3
-});
+const s3Client = createS3Client(envVars);
 
 // Statistics
 const stats = {
   totalFiles: 0,
   htmlFiles: 0,
+  jsonFiles: 0,
+  processedFiles: 0,
   filesWithHlxRefs: 0,
   totalHlxRefs: 0,
   hlxPageRefs: 0,
   hlxLiveRefs: 0,
   errors: 0,
-  startTime: Date.now()
+  totalShards: 0,
+  completedShards: 0,
+  activeShards: 0,
+  startTime: Date.now(),
+  lastUpdate: Date.now()
 };
 
 // Array to store files with HLX references
@@ -101,69 +79,21 @@ const filesWithRefs = [];
 // Matches URLs in href, src, and other attributes, including protocol and path
 const URL_PATTERN = /https?:\/\/[^\s"'<>]+\.hlx\.(page|live)[^\s"'<>]*/gi;
 
-// Function to list objects in current folder only (not recursive)
-async function listCurrentFolderObjects(bucket, prefix) {
-  let continuationToken = null;
-  const allObjects = [];
-  
-  do {
-    const command = new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: prefix,
-      Delimiter: '/', // This makes it list only current folder contents
-      ContinuationToken: continuationToken,
-      MaxKeys: 1000
-    });
-    
-    const response = await s3Client.send(command);
-    
-    if (response.Contents && response.Contents.length > 0) {
-      allObjects.push(...response.Contents);
-    }
-    
-    continuationToken = response.NextContinuationToken;
-  } while (continuationToken);
-  
-  return allObjects;
-}
-
-// Function to discover subfolders in current directory
-async function discoverSubfolders(bucket, prefix) {
-  const command = new ListObjectsV2Command({
-    Bucket: bucket,
-    Prefix: prefix,
-    Delimiter: '/',
-    MaxKeys: 1000
-  });
-  
-  const response = await s3Client.send(command);
-  const subfolders = [];
-  
-  if (response.CommonPrefixes) {
-    response.CommonPrefixes.forEach(prefixObj => {
-      // Filter out .da-versions and .trash folders
-      if (!prefixObj.Prefix.includes('/.da-versions/') && 
-          !prefixObj.Prefix.includes('/.trash/')) {
-        subfolders.push(prefixObj.Prefix);
-      }
-    });
+// Function to check if a file should be processed (HTML or JSON)
+function shouldProcessFile(key) {
+  // Skip .da-versions and .trash folders
+  if (key.includes('/.da-versions/') || key.includes('/.trash/')) {
+    return false;
   }
   
-  return subfolders;
-}
-
-// Function to check if a file is HTML
-function isHtmlFile(key) {
+  // Check if HTML or JSON file
   const lowerKey = key.toLowerCase();
-  return lowerKey.endsWith('.html') || lowerKey.endsWith('.htm');
+  return lowerKey.endsWith('.html') || lowerKey.endsWith('.htm') || lowerKey.endsWith('.json');
 }
 
-// Function to read and search HTML content
-async function searchHtmlContent(bucket, key) {
+// Function to read and search file content (HTML or JSON)
+async function searchFileContent(bucket, key) {
   try {
-    // Log the file being checked
-    console.log(`Checking: ${key}`);
-    
     const command = new GetObjectCommand({
       Bucket: bucket,
       Key: key
@@ -176,13 +106,13 @@ async function searchHtmlContent(bucket, key) {
     for await (const chunk of response.Body) {
       chunks.push(chunk);
     }
-    let htmlContent = Buffer.concat(chunks).toString('utf-8');
+    let content = Buffer.concat(chunks).toString('utf-8');
     
     // Extract all URLs containing .hlx.page or .hlx.live
-    const urlMatches = htmlContent.match(URL_PATTERN) || [];
+    const urlMatches = content.match(URL_PATTERN) || [];
     
-    // Clear htmlContent to free memory immediately
-    htmlContent = null;
+    // Clear content to free memory immediately
+    content = null;
     
     if (urlMatches.length > 0) {
       // Deduplicate URLs (same URL might appear multiple times in the HTML)
@@ -197,21 +127,8 @@ async function searchHtmlContent(bucket, key) {
       stats.hlxPageRefs += hlxPageUrls.length;
       stats.hlxLiveRefs += hlxLiveUrls.length;
       
-      console.log(`  ✓ FOUND: ${hlxPageUrls.length} .hlx.page URLs, ${hlxLiveUrls.length} .hlx.live URLs`);
-      
-      // Display URLs immediately to console
-      if (hlxPageUrls.length > 0) {
-        console.log(`     .hlx.page URLs:`);
-        hlxPageUrls.forEach(url => {
-          console.log(`       - ${url}`);
-        });
-      }
-      if (hlxLiveUrls.length > 0) {
-        console.log(`     .hlx.live URLs:`);
-        hlxLiveUrls.forEach(url => {
-          console.log(`       - ${url}`);
-        });
-      }
+      console.log(`✓ ${key}`);
+      console.log(`  FOUND: ${hlxPageUrls.length} .hlx.page URLs, ${hlxLiveUrls.length} .hlx.live URLs`);
       
       // Store minimal info only (no URLs to save memory)
       const fileInfo = {
@@ -240,72 +157,117 @@ async function searchHtmlContent(bucket, key) {
     return false;
   } catch (error) {
     stats.errors++;
-    console.error(`\nError reading ${key}: ${error.message}`);
+    console.error(`✗ Error reading ${key}: ${error.message}`);
     return false;
   }
 }
 
-// Function to process a folder and its subfolders recursively
-async function processFolder(bucket, folderPrefix, batchSize = 50) {
-  // List files in current folder only
-  const objects = await listCurrentFolderObjects(bucket, folderPrefix);
+// List and process all HTML and JSON files in a shard
+async function listAndProcessShard(shard, shardId) {
+  stats.totalShards++;
+  stats.activeShards++;
   
-  // Filter for HTML files only
-  const htmlObjects = objects.filter(obj => 
-    !obj.Key.includes('/.da-versions/') && 
-    !obj.Key.includes('/.trash/') &&
-    isHtmlFile(obj.Key) &&
-    !obj.Key.endsWith('/') // Exclude directory markers
-  );
+  let continuationToken = null;
+  let shardFileCount = 0;
+  let shardProcessCount = 0;
+  let shardHtmlCount = 0;
+  let shardJsonCount = 0;
+  const startTime = Date.now();
+  const shardPrefix = shard.prefix;
+  const isCatchAll = shard.type === 'catch-all';
   
-  stats.totalFiles += objects.length;
-  stats.htmlFiles += htmlObjects.length;
+  const filesToProcess = [];
   
-  if (htmlObjects.length > 0) {
-    // Process HTML files in current folder immediately with batching
-    await processBatchImmediate(htmlObjects, batchSize);
-  }
-  
-  // Discover subfolders
-  const subfolders = await discoverSubfolders(bucket, folderPrefix);
-  
-  let totalObjectsInSubfolders = 0;
-  
-  if (subfolders.length > 0) {
-    // Process subfolders with limited concurrency to reduce memory usage
-    const maxConcurrentSubfolders = 5;
-    for (let i = 0; i < subfolders.length; i += maxConcurrentSubfolders) {
-      const batch = subfolders.slice(i, i + maxConcurrentSubfolders);
-      const subfolderPromises = batch.map(subfolder => 
-        processFolder(bucket, subfolder, batchSize)
-      );
-      const subfolderResults = await Promise.all(subfolderPromises);
-      totalObjectsInSubfolders += subfolderResults.reduce((sum, count) => sum + count, 0);
+  try {
+    // First pass: List all objects in this shard
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: shardPrefix,
+        MaxKeys: 1000,
+        ContinuationToken: continuationToken
+      });
+      
+      const response = await s3Client.send(command);
+      
+      if (response.Contents && response.Contents.length > 0) {
+        // Filter keys for this shard to avoid duplicates
+        const keysToProcess = filterObjectsByShard(response.Contents, shard, prefix);
+        
+        shardFileCount += keysToProcess.length;
+        stats.totalFiles += keysToProcess.length;
+        
+        // Filter for HTML and JSON files to process
+        const processableFiles = keysToProcess.filter(obj => shouldProcessFile(obj.Key));
+        shardProcessCount += processableFiles.length;
+        
+        // Count HTML and JSON separately
+        processableFiles.forEach(obj => {
+          const lowerKey = obj.Key.toLowerCase();
+          if (lowerKey.endsWith('.html') || lowerKey.endsWith('.htm')) {
+            shardHtmlCount++;
+            stats.htmlFiles++;
+          } else if (lowerKey.endsWith('.json')) {
+            shardJsonCount++;
+            stats.jsonFiles++;
+          }
+        });
+        
+        stats.processedFiles += processableFiles.length;
+        filesToProcess.push(...processableFiles);
+      }
+      
+      continuationToken = response.NextContinuationToken;
+      
+      // Progress update every 10 seconds
+      if (Date.now() - stats.lastUpdate > 10000) {
+        const elapsed = ((Date.now() - stats.startTime) / 1000).toFixed(1);
+        console.log(`[${elapsed}s] Total: ${stats.totalFiles} files, ${stats.htmlFiles} HTML, ${stats.jsonFiles} JSON | With refs: ${stats.filesWithHlxRefs} | Active: ${stats.activeShards} | Completed: ${stats.completedShards}/${stats.totalShards}`);
+        stats.lastUpdate = Date.now();
+      }
+      
+    } while (continuationToken);
+    
+    // Second pass: Process HTML and JSON files in batches
+    if (filesToProcess.length > 0) {
+      const batchSize = 50; // Increased from 10 for better throughput
+      for (let i = 0; i < filesToProcess.length; i += batchSize) {
+        const batch = filesToProcess.slice(i, i + batchSize);
+        const batchPromises = batch.map(obj => searchFileContent(bucket, obj.Key));
+        await Promise.all(batchPromises);
+      }
     }
-  }
-  
-  return objects.length + totalObjectsInSubfolders;
-}
-
-// Function to process a batch immediately (used during listing)
-async function processBatchImmediate(htmlObjects, batchSize = 10) {
-  for (let i = 0; i < htmlObjects.length; i += batchSize) {
-    const batch = htmlObjects.slice(i, i + batchSize);
-    const batchPromises = batch.map(obj => searchHtmlContent(bucket, obj.Key));
-    await Promise.all(batchPromises);
+    
+    stats.completedShards++;
+    stats.activeShards--;
+    
+    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+    const shardLabel = formatShardLabel(shard);
+    console.log(`✓ Shard ${shardId} (${shardLabel}): ${shardFileCount} files, ${shardHtmlCount} HTML, ${shardJsonCount} JSON in ${duration}s`);
+    
+    return shardFileCount;
+    
+  } catch (error) {
+    stats.activeShards--;
+    const shardLabel = formatShardLabel(shard);
+    console.error(`✗ Shard ${shardId} (${shardLabel}) failed: ${error.message}`);
+    return 0;
   }
 }
 
 // Main function
 async function main() {
   console.log('='.repeat(70));
-  console.log('S3 HTML HLX Reference Finder');
+  console.log('S3 HLX Reference Finder (Sharded)');
   console.log('='.repeat(70));
   console.log(`Bucket: ${bucket}`);
   console.log(`Prefix: ${prefix}`);
   console.log(`Output file: ${outputFile}`);
+  console.log(`Shards: 63 concurrent (complete coverage)`);
   console.log('');
   console.log('Searching for: .hlx.page and .hlx.live references');
+  console.log('File types: HTML (.html, .htm) and JSON (.json)');
+  console.log('Note: Automatically ignores .da-versions and .trash folders');
   console.log('');
   
   // Create output file stream
@@ -316,33 +278,50 @@ async function main() {
   });
   
   try {
-    // Process folder and subfolders recursively with parallel subfolder processing
-    console.log('Scanning HTML documents and searching for HLX references...');
-    console.log('(Processing files in current folder, then parallelizing subfolders)');
+    // Generate shard prefixes
+    const shards = generateShardPrefixes(prefix, shardCount);
+    displayShardInfo(shards);
+    
+    console.log('');
+    console.log('Starting search...');
     console.log('');
     
-    const totalObjects = await processFolder(bucket, prefix, 10); // Conservative batch size for memory efficiency
+    stats.startTime = Date.now();
+    stats.lastUpdate = Date.now();
     
-    if (totalObjects === 0) {
-      console.log('No objects found with the specified prefix.');
-      return;
-    }
+    // Process all shards concurrently
+    const shardPromises = shards.map((shard, index) => 
+      listAndProcessShard(shard, index + 1)
+    );
+    
+    await Promise.all(shardPromises);
+    
+    // Close output stream
+    outputStream.end();
     
     // Display results
     console.log('');
     console.log('='.repeat(70));
     console.log('RESULTS');
     console.log('='.repeat(70));
-    console.log(`Total files scanned: ${stats.totalFiles}`);
-    console.log(`HTML files found: ${stats.htmlFiles}`);
-    console.log(`HTML files with HLX references: ${stats.filesWithHlxRefs}`);
+    console.log(`Total files scanned: ${stats.totalFiles.toLocaleString()}`);
+    console.log(`HTML files found: ${stats.htmlFiles.toLocaleString()}`);
+    console.log(`JSON files found: ${stats.jsonFiles.toLocaleString()}`);
+    console.log(`Files processed: ${stats.processedFiles.toLocaleString()}`);
+    console.log(`Files with HLX references: ${stats.filesWithHlxRefs}`);
     console.log(`Total .hlx.page references: ${stats.hlxPageRefs}`);
     console.log(`Total .hlx.live references: ${stats.hlxLiveRefs}`);
     console.log(`Total HLX references: ${stats.totalHlxRefs}`);
     console.log(`Errors: ${stats.errors}`);
+    console.log(`Total shards: ${stats.totalShards}`);
+    console.log(`Successful shards: ${stats.completedShards}`);
+    console.log(`Failed shards: ${stats.totalShards - stats.completedShards}`);
     
     const duration = ((Date.now() - stats.startTime) / 1000).toFixed(2);
     console.log(`Duration: ${duration}s`);
+    
+    const filesPerSecond = (stats.totalFiles / (duration || 1)).toFixed(0);
+    console.log(`Throughput: ${filesPerSecond} files/second`);
     console.log('');
     
     if (filesWithRefs.length > 0) {
@@ -367,17 +346,17 @@ async function main() {
       console.log('FILE PATHS (for batch processing)');
       console.log('='.repeat(70));
       filesWithRefs.forEach(file => {
-        console.log(`/${file.key}`);
+        console.log(file.key);
       });
+      console.log('');
     } else {
       console.log('No HLX references found! ✓');
+      console.log('');
     }
     
-    // Close output stream
-    if (outputStream) {
-      outputStream.end();
-      console.log(`\nDetailed results written to: ${outputFile}`);
-    }
+    console.log(`Detailed results written to: ${outputFile}`);
+    console.log('✓ Search complete!');
+    console.log('');
     
   } catch (error) {
     console.error('Error:', error.message);
