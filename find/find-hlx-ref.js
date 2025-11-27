@@ -230,7 +230,7 @@ async function listAndProcessShard(shard, shardId) {
     
     // Second pass: Process HTML and JSON files in batches
     if (filesToProcess.length > 0) {
-      const batchSize = 50; // Increased from 10 for better throughput
+      const batchSize = 5; // 5 * 66 shards = 330 concurrent requests (fits in 500 sockets)
       for (let i = 0; i < filesToProcess.length; i += batchSize) {
         const batch = filesToProcess.slice(i, i + batchSize);
         const batchPromises = batch.map(obj => searchFileContent(bucket, obj.Key));

@@ -118,22 +118,23 @@ assert(shards1.length === 1, 'Single shard: generates exactly 1 shard');
 assert(shards1[0].type === 'all', 'Single shard: type is "all"');
 assert(shards1[0].prefix === 'test/', 'Single shard: prefix matches base');
 
-// Test: 16 shards
+// Test: Request 16 shards (returns full set of 66)
 const shards16 = generateShardPrefixes('test/', 16);
-assert(shards16.length === 16, '16 shards: generates exactly 16 shards');
-assert(shards16[0].type === 'catch-all', '16 shards: first is catch-all');
-assert(shards16.slice(1).every(s => s.type === 'alphanum'), '16 shards: rest are alphanum');
+assert(shards16.length === 66, '16 shards request: actually generates 66 for coverage');
+assert(shards16[0].type === 'catch-all', '16 shards request: first is catch-all');
+assert(shards16.slice(1).every(s => s.type === 'alphanum' || s.type === 'explicit'), 
+       '16 shards request: rest are alphanum/explicit');
 
-// Test: 62 shards (all alphanumeric + catch-all)
-const shards62 = generateShardPrefixes('test/', 62);
-assert(shards62.length === 62, '62 shards: generates exactly 62 shards');
-assert(shards62[0].type === 'catch-all', '62 shards: first is catch-all');
-assert(shards62.length === 62, '62 shards: covers 61 alphanumeric chars + catch-all');
+// Test: 65 shards (all explicit chars + catch-all)
+const shards66 = generateShardPrefixes('test/', 66);
+assert(shards66.length === 66, '66 shards: generates exactly 66 shards (62 alphanum + 3 special + 1 catch-all)');
+assert(shards66[0].type === 'catch-all', '66 shards: first is catch-all');
+assert(shards66.length === 66, '66 shards: covers 65 explicit chars + catch-all');
 
-// Test: 63 shards (all 62 alphanumeric + catch-all)
-const shards63 = generateShardPrefixes('test/', 63);
-assert(shards63.length === 63, '63 shards: generates exactly 63 shards');
-assert(shards63[0].type === 'catch-all', '63 shards: first is catch-all');
+// Test: 67 shards (should still generate 66)
+const shards67 = generateShardPrefixes('test/', 67);
+assert(shards67.length === 66, '67 shards: generates exactly 66 shards');
+assert(shards67[0].type === 'catch-all', '67 shards: first is catch-all');
 
 // Test: Prefix preservation
 const shardsPrefix = generateShardPrefixes('my/custom/prefix/', 10);
@@ -146,15 +147,19 @@ const testShards = generateShardPrefixes('prefix/', 20);
 const catchAllShard = testShards[0];
 const firstAlphanumShard = testShards[1];
 
-// Test: Catch-all shard catches special characters
-assert(keyBelongsToShard('prefix/.htaccess', catchAllShard, 'prefix/'), 
-       'Catch-all: catches dot files');
-assert(keyBelongsToShard('prefix/_config.yml', catchAllShard, 'prefix/'), 
-       'Catch-all: catches underscore files');
-assert(keyBelongsToShard('prefix/-dash.txt', catchAllShard, 'prefix/'), 
-       'Catch-all: catches dash files');
+// Test: Catch-all shard catches OTHER special characters
 assert(keyBelongsToShard('prefix/@special.json', catchAllShard, 'prefix/'), 
        'Catch-all: catches @ files');
+assert(keyBelongsToShard('prefix/+plus.txt', catchAllShard, 'prefix/'), 
+       'Catch-all: catches + files');
+
+// Test: Catch-all does NOT catch explicit special chars (now handled by explicit shards)
+assert(!keyBelongsToShard('prefix/.htaccess', catchAllShard, 'prefix/'), 
+       'Catch-all: does NOT catch dot files (now explicit)');
+assert(!keyBelongsToShard('prefix/_config.yml', catchAllShard, 'prefix/'), 
+       'Catch-all: does NOT catch underscore files (now explicit)');
+assert(!keyBelongsToShard('prefix/-dash.txt', catchAllShard, 'prefix/'), 
+       'Catch-all: does NOT catch dash files (now explicit)');
 
 // Test: Catch-all does NOT catch alphanumeric
 assert(!keyBelongsToShard('prefix/apple.html', catchAllShard, 'prefix/'), 
@@ -209,22 +214,24 @@ const mockObjects = [
   { Key: 'prefix/.htaccess', Size: 50 },
   { Key: 'prefix/123.txt', Size: 75 },
   { Key: 'prefix/_config.yml', Size: 30 },
+  { Key: 'prefix/@special.json', Size: 10 }, // Truly catch-all
 ];
 
 const filterShards = generateShardPrefixes('prefix/', 20);
 const filterCatchAll = filterShards[0];
 
 const filtered = filterObjectsByShard(mockObjects, filterCatchAll, 'prefix/');
-assert(filtered.length === 2, `Filter: catch-all gets 2 special char files (got ${filtered.length})`);
-assert(filtered.every(obj => !/^prefix\/[0-9a-zA-Z]/.test(obj.Key)), 
-       'Filter: all filtered objects are special chars');
+assert(filtered.length === 1, `Filter: catch-all gets 1 special char file (got ${filtered.length}) - excludes explicit . and _`);
+assert(filtered[0].Key === 'prefix/@special.json', 'Filter: correctly kept @ file');
+assert(filtered.every(obj => !/^prefix\/[0-9a-zA-Z_.-]/.test(obj.Key)), 
+       'Filter: all filtered objects are truly special chars (no alphanum, ., _, -)');
 
 section('6. Statistics Tests');
 
 const stats = getShardStats(shards32);
-assert(stats.total === 32, `Stats: total is 32 (got ${stats.total})`);
+assert(stats.total === 66, `Stats: total is 66 (got ${stats.total})`);
 assert(stats.catchAll === 1, `Stats: catchAll is 1 (got ${stats.catchAll})`);
-assert(stats.alphanum === 31, `Stats: alphanum is 31 (got ${stats.alphanum})`);
+assert(stats.alphanum === 65, `Stats: alphanum/explicit is 65 (got ${stats.alphanum})`);
 
 section('7. Nested Folder Tests (Critical)');
 

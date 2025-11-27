@@ -33,15 +33,17 @@ function generateShardPrefixes(basePrefix, count) {
   const digits = '0123456789';
   const lowercase = 'abcdefghijklmnopqrstuvwxyz';
   const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  // Common special characters that are valid and efficient as prefixes
+  const specialChars = '_-.';
   
-  // All alphanumeric characters in ASCII order (62 total)
-  const allAlphanum = digits + uppercase + lowercase;
+  // All characters to shard on (65 total: 62 alphanum + 3 special)
+  const allChars = digits + uppercase + lowercase + specialChars;
   
-  // Add catch-all shard first for special characters (., _, -, etc.)
+  // Add catch-all shard first for other special characters (@, +, space, etc.)
   shards.push({
     prefix: basePrefix,
     type: 'catch-all',
-    description: 'Files starting with special chars (., _, -, etc.)',
+    description: 'Files starting with other chars (@, +, space, etc.)',
     charRange: null
   });
   
@@ -49,18 +51,18 @@ function generateShardPrefixes(basePrefix, count) {
   // If we want files starting with '1', '2', '3', we need separate S3 queries
   // So we MUST generate one shard per character for complete coverage
   
-  // Generate all 62 alphanumeric shards for complete coverage
-  for (let i = 0; i < allAlphanum.length; i++) {
-    const char = allAlphanum[i];
+  // Generate shards for all explicit characters for complete coverage
+  for (let i = 0; i < allChars.length; i++) {
+    const char = allChars[i];
     shards.push({
       prefix: basePrefix + char,
-      type: 'alphanum',
+      type: 'explicit',
       description: `Files starting with '${char}'`,
       charRange: [char] // Single character only
     });
   }
   
-  // Always return all 63 shards for complete coverage
+  // Always return all shards (1 catch-all + 65 explicit)
   return shards;
 }
 
@@ -92,18 +94,18 @@ function keyBelongsToShard(key, shard, basePrefix) {
     return true;
   }
   
-  // For catch-all shard, accept only non-alphanumeric characters
-  if (shard.type === 'catch-all') {
-    return !/[0-9a-zA-Z]/.test(firstChar);
-  }
-  
-  // For alphanum shards, check if first character is in the range
-  if (shard.type === 'alphanum') {
+  // Explicit shards (alphanum + _ - .)
+  if (shard.type === 'explicit' || shard.type === 'alphanum') {
     if (shard.charRange) {
       return shard.charRange.includes(firstChar);
     }
-    // Fallback: check if key starts with shard prefix
     return key.startsWith(shard.prefix);
+  }
+
+  // For catch-all shard, accept only what's NOT covered by explicit shards
+  // Explicit chars: 0-9, a-z, A-Z, _, -, .
+  if (shard.type === 'catch-all') {
+    return !/[0-9a-zA-Z_.-]/.test(firstChar);
   }
   
   return false;
@@ -122,12 +124,13 @@ function filterObjectsByShard(objects, shard, basePrefix) {
     return [];
   }
   
-  // For catch-all shard, filter out alphanumeric
+  // For catch-all shard, filter out alphanumeric AND explicit special chars
   if (shard.type === 'catch-all') {
     return objects.filter(obj => {
       const keyAfterPrefix = obj.Key.substring(basePrefix.length);
       if (!keyAfterPrefix) return true;
-      return !/^[0-9a-zA-Z]/.test(keyAfterPrefix);
+      // Exclude 0-9, a-z, A-Z, _, -, .
+      return !/^[0-9a-zA-Z_.-]/.test(keyAfterPrefix);
     });
   }
   
@@ -146,7 +149,8 @@ function getShardStats(shards) {
   const stats = {
     total: shards.length,
     'catch-all': 0,
-    alphanum: 0,
+    alphanum: 0, // Kept for compatibility (includes explicit)
+    explicit: 0,
     all: 0,
     catchAll: 0, // Alias for backward compat
     characters: []
@@ -156,8 +160,9 @@ function getShardStats(shards) {
     if (shard.type === 'catch-all') {
       stats['catch-all']++;
       stats.catchAll++;
-    } else if (shard.type === 'alphanum') {
+    } else if (shard.type === 'alphanum' || shard.type === 'explicit') {
       stats.alphanum++;
+      stats.explicit++;
       if (shard.charRange) {
         stats.characters.push(...shard.charRange);
       }

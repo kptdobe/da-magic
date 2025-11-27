@@ -65,7 +65,7 @@ function createS3Client(envVars) {
     maxAttempts: 3,
     requestHandler: new NodeHttpHandler({
     httpsAgent: new https.Agent({
-      maxSockets: 100, // Support 63+ concurrent shards
+      maxSockets: 500, // Safe limit for macOS (ulimit usually >256)
       keepAlive: true,
       keepAliveMsecs: 1000
     }),
