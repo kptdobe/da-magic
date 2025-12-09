@@ -124,7 +124,8 @@ async function listShardObjects(s3Client, bucket, shard, basePrefix, onBatch) {
  * @param {string} options.bucket - S3 bucket name
  * @param {string} options.prefix - Base prefix to process
  * @param {number} options.shardCount - Number of shards (usually 63)
- * @param {Function} options.processObject - Function to process each object
+ * @param {Function} options.processObject - Function to process each object (sequential)
+ * @param {Function} options.processBatch - Function to process a batch of objects (parallel control)
  * @param {Function} options.onProgress - Progress callback
  * @param {Function} options.onShardComplete - Shard completion callback
  * @returns {Promise<Object>} Final statistics
@@ -136,6 +137,7 @@ async function processShards(options) {
     prefix,
     shardCount = 63,
     processObject,
+    processBatch,
     onProgress,
     onShardComplete
   } = options;
@@ -173,8 +175,13 @@ async function processShards(options) {
           shardObjectCount += objects.length;
           stats.totalObjects += objects.length;
           
-          // Process each object
-          if (processObject) {
+          // Process objects
+          if (processBatch) {
+            // Let the caller handle the batch (allows for custom parallelism)
+            await processBatch(objects, shard);
+            stats.processedObjects += objects.length;
+          } else if (processObject) {
+            // Default: sequential processing
             for (const obj of objects) {
               await processObject(obj, shard);
               stats.processedObjects++;
