@@ -1,0 +1,16 @@
+{
+  "name": "cloudflare-kv-export",
+  "version": "1.0.0",
+  "description": "Export Cloudflare KV namespace contents",
+  "main": "cloudflare-kv-export.js",
+  "scripts": {
+    "export": "node cloudflare-kv-export.js"
+  },
+  "keywords": ["cloudflare", "kv", "export"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}
+
