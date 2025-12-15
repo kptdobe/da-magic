@@ -8,3 +8,5 @@ node_modules
 .cache*
 *.txt
 .DS_Store
+*.csv
+.data
