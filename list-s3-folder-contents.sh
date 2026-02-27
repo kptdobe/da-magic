@@ -163,6 +163,79 @@ if ! command -v aws &> /dev/null; then
     exit 1
 fi
 
+# Check if jq is installed (required for pagination when folder has >1000 objects)
+if ! command -v jq &> /dev/null; then
+    print_error "jq is required for correct listing and counts (S3 returns max 1000 per request). Please install jq."
+    print_status "  macOS: brew install jq"
+    print_status "  Ubuntu/Debian: sudo apt-get install jq"
+    exit 1
+fi
+
+# Paginate list-objects-v2 and output all keys (optionally to file). Uses delimiter when set (non-recursive).
+list_all_keys_paginated() {
+    local prefix="$1"
+    local delimiter="$2"
+    local output_file="$3"
+    local token=""
+    while true; do
+        local args=(--bucket "$BUCKET" --prefix "$prefix" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
+        [[ -n "$delimiter" ]] && args+=(--delimiter "$delimiter")
+        [[ -n "$token" ]] && args+=(--starting-token "$token")
+        local resp
+        resp=$(aws s3api list-objects-v2 "${args[@]}")
+        local keys
+        keys=$(echo "$resp" | jq -r '.Contents[]?.Key // empty')
+        echo "$keys"
+        [[ -n "$output_file" ]] && [[ -n "$keys" ]] && echo "$keys" >> "$output_file"
+        [[ "$(echo "$resp" | jq -r '.IsTruncated')" != "true" ]] && break
+        token=$(echo "$resp" | jq -r '.NextContinuationToken')
+    done
+}
+
+# Paginate and output all CommonPrefixes (subfolder names). Used for non-recursive listing.
+list_all_common_prefixes_paginated() {
+    local prefix="$1"
+    local output_file="$2"
+    local token=""
+    while true; do
+        local args=(--bucket "$BUCKET" --prefix "$prefix" --delimiter "/" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
+        [[ -n "$token" ]] && args+=(--starting-token "$token")
+        local resp
+        resp=$(aws s3api list-objects-v2 "${args[@]}")
+        local prefixes
+        prefixes=$(echo "$resp" | jq -r '.CommonPrefixes[]?.Prefix // empty')
+        echo "$prefixes"
+        [[ -n "$output_file" ]] && [[ -n "$prefixes" ]] && echo "$prefixes" >> "$output_file"
+        [[ "$(echo "$resp" | jq -r '.IsTruncated')" != "true" ]] && break
+        token=$(echo "$resp" | jq -r '.NextContinuationToken')
+    done
+}
+
+# Count total objects (and optionally common prefixes) with pagination. Prints "total_objects [total_prefixes]".
+count_paginated() {
+    local prefix="$1"
+    local use_delimiter="$2"
+    local total_objects=0
+    local total_prefixes=0
+    local token=""
+    while true; do
+        local args=(--bucket "$BUCKET" --prefix "$prefix" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
+        [[ "$use_delimiter" == "true" ]] && args+=(--delimiter "/")
+        [[ -n "$token" ]] && args+=(--starting-token "$token")
+        local resp
+        resp=$(aws s3api list-objects-v2 "${args[@]}")
+        n=$(echo "$resp" | jq -r '(.Contents // []) | length' 2>/dev/null) || n=0
+        total_objects=$((total_objects + ${n:-0}))
+        if [[ "$use_delimiter" == "true" ]]; then
+            p=$(echo "$resp" | jq -r '(.CommonPrefixes // []) | length' 2>/dev/null) || p=0
+            total_prefixes=$((total_prefixes + ${p:-0}))
+        fi
+        [[ "$(echo "$resp" | jq -r '.IsTruncated')" != "true" ]] && break
+        token=$(echo "$resp" | jq -r '.NextContinuationToken')
+    done
+    echo "$total_objects $total_prefixes"
+}
+
 # Configure AWS CLI with environment variables
 export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
@@ -178,97 +251,81 @@ if [[ "$RECURSIVE" == true ]]; then
     print_status "Listing files recursively (including subfolders)..."
     
     if [[ "$SHOW_DETAILS" == true ]]; then
-        # List with detailed information recursively
+        # List with detailed information recursively (paginated)
         if [[ -n "$OUTPUT_FILE" ]]; then
             print_status "Saving detailed listing to: $OUTPUT_FILE"
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].{Key: Key, Size: Size, LastModified: LastModified, ContentType: ContentType}' \
-                --output table \
-                --no-cli-pager | tee "$OUTPUT_FILE"
-        else
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].{Key: Key, Size: Size, LastModified: LastModified, ContentType: ContentType}' \
-                --output table \
-                --no-cli-pager
+            : > "$OUTPUT_FILE"
         fi
+        _first_page=true
+        _token=""
+        while true; do
+            _args=(--bucket "$BUCKET" --prefix "$FULL_FOLDER_PATH" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
+            [[ -n "$_token" ]] && _args+=(--starting-token "$_token")
+            _resp=$(aws s3api list-objects-v2 "${_args[@]}")
+            _rows=$(echo "$_resp" | jq -r '["Key", "Size", "LastModified", "ContentType"], (.Contents[]? | [.Key, .Size, .LastModified, .ContentType]) | @tsv')
+            if [[ -n "$_rows" ]]; then
+                if [[ "$_first_page" == true ]]; then
+                    echo "$_rows" | column -t -s $'\t'
+                    [[ -n "$OUTPUT_FILE" ]] && echo "$_rows" | column -t -s $'\t' >> "$OUTPUT_FILE"
+                    _first_page=false
+                else
+                    echo "$_rows" | tail -n +2 | column -t -s $'\t'
+                    [[ -n "$OUTPUT_FILE" ]] && echo "$_rows" | tail -n +2 | column -t -s $'\t' >> "$OUTPUT_FILE"
+                fi
+            fi
+            [[ "$(echo "$_resp" | jq -r '.IsTruncated')" != "true" ]] && break
+            _token=$(echo "$_resp" | jq -r '.NextContinuationToken')
+        done
     else
-        # List just keys recursively
+        # List just keys recursively (paginated)
         if [[ -n "$OUTPUT_FILE" ]]; then
             print_status "Saving file listing to: $OUTPUT_FILE"
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].Key' \
-                --output text \
-                --no-cli-pager | tr '\t' '\n' | tee "$OUTPUT_FILE"
+            : > "$OUTPUT_FILE"
+            list_all_keys_paginated "$FULL_FOLDER_PATH" "" "$OUTPUT_FILE"
         else
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].Key' \
-                --output text \
-                --no-cli-pager | tr '\t' '\n'
+            list_all_keys_paginated "$FULL_FOLDER_PATH" ""
         fi
     fi
 else
     print_status "Listing files in current folder only (non-recursive)..."
     
     if [[ "$SHOW_DETAILS" == true ]]; then
-        # List with detailed information (current folder only)
+        # List with detailed information (current folder only, paginated)
         if [[ -n "$OUTPUT_FILE" ]]; then
             print_status "Saving detailed listing to: $OUTPUT_FILE"
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --delimiter "/" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].{Key: Key, Size: Size, LastModified: LastModified, ContentType: ContentType}' \
-                --output table \
-                --no-cli-pager | tee "$OUTPUT_FILE"
-        else
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --delimiter "/" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].{Key: Key, Size: Size, LastModified: LastModified, ContentType: ContentType}' \
-                --output table \
-                --no-cli-pager
+            : > "$OUTPUT_FILE"
         fi
+        _first_page=true
+        _token=""
+        while true; do
+            _args=(--bucket "$BUCKET" --prefix "$FULL_FOLDER_PATH" --delimiter "/" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
+            [[ -n "$_token" ]] && _args+=(--starting-token "$_token")
+            _resp=$(aws s3api list-objects-v2 "${_args[@]}")
+            _rows=$(echo "$_resp" | jq -r '["Key", "Size", "LastModified", "ContentType"], (.Contents[]? | [.Key, .Size, .LastModified, .ContentType]) | @tsv')
+            if [[ -n "$_rows" ]]; then
+                if [[ "$_first_page" == true ]]; then
+                    echo "$_rows" | column -t -s $'\t'
+                    [[ -n "$OUTPUT_FILE" ]] && echo "$_rows" | column -t -s $'\t' >> "$OUTPUT_FILE"
+                    _first_page=false
+                else
+                    echo "$_rows" | tail -n +2 | column -t -s $'\t'
+                    [[ -n "$OUTPUT_FILE" ]] && echo "$_rows" | tail -n +2 | column -t -s $'\t' >> "$OUTPUT_FILE"
+                fi
+            fi
+            [[ "$(echo "$_resp" | jq -r '.IsTruncated')" != "true" ]] && break
+            _token=$(echo "$_resp" | jq -r '.NextContinuationToken')
+        done
         
         print_status ""
         print_status "Subfolders found:"
-        SUBFOLDERS_DETAILED=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --prefix "$FULL_FOLDER_PATH" \
-            --delimiter "/" \
-            --endpoint-url "$ENDPOINT_URL" \
-            --region auto \
-            --query 'CommonPrefixes[].Prefix' \
-            --output text \
-            --no-cli-pager)
-        
+        SUBFOLDERS_DETAILED=$(list_all_common_prefixes_paginated "$FULL_FOLDER_PATH" "")
         if [[ -n "$SUBFOLDERS_DETAILED" ]]; then
             if [[ -n "$OUTPUT_FILE" ]]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "Subfolders found:" >> "$OUTPUT_FILE"
                 echo "$SUBFOLDERS_DETAILED" >> "$OUTPUT_FILE"
             fi
-            echo "$SUBFOLDERS_DETAILED" | tr '\t' '\n'
+            echo "$SUBFOLDERS_DETAILED"
         else
             if [[ -n "$OUTPUT_FILE" ]]; then
                 echo "" >> "$OUTPUT_FILE"
@@ -278,48 +335,25 @@ else
             print_status "No subfolders found"
         fi
     else
-        # List just keys (current folder only)
+        # List just keys (current folder only, paginated)
         if [[ -n "$OUTPUT_FILE" ]]; then
             print_status "Saving file listing to: $OUTPUT_FILE"
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --delimiter "/" \
-                --endpoint-url "$ENDPOINT_URL" \
-                --region auto \
-                --query 'Contents[].Key' \
-                --output text \
-                --no-cli-pager | tr '\t' '\n' | tee "$OUTPUT_FILE"
+            : > "$OUTPUT_FILE"
+            list_all_keys_paginated "$FULL_FOLDER_PATH" "/" "$OUTPUT_FILE"
         else
-            aws s3api list-objects-v2 \
-                --bucket "$BUCKET" \
-                --prefix "$FULL_FOLDER_PATH" \
-                --delimiter "/" \
-                --region auto \
-                --query 'Contents[].Key' \
-                --output text \
-                --no-cli-pager | tr '\t' '\n'
+            list_all_keys_paginated "$FULL_FOLDER_PATH" "/"
         fi
         
         print_status ""
         print_status "Subfolders found:"
-        SUBFOLDERS_SIMPLE=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --prefix "$FULL_FOLDER_PATH" \
-            --delimiter "/" \
-            --endpoint-url "$ENDPOINT_URL" \
-            --region auto \
-            --query 'CommonPrefixes[].Prefix' \
-            --output text \
-            --no-cli-pager)
-        
+        SUBFOLDERS_SIMPLE=$(list_all_common_prefixes_paginated "$FULL_FOLDER_PATH" "")
         if [[ -n "$SUBFOLDERS_SIMPLE" ]]; then
             if [[ -n "$OUTPUT_FILE" ]]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "Subfolders found:" >> "$OUTPUT_FILE"
-                echo "$SUBFOLDERS_SIMPLE" | tr '\t' '\n' >> "$OUTPUT_FILE"
+                echo "$SUBFOLDERS_SIMPLE" >> "$OUTPUT_FILE"
             fi
-            echo "$SUBFOLDERS_SIMPLE" | tr '\t' '\n'
+            echo "$SUBFOLDERS_SIMPLE"
         else
             if [[ -n "$OUTPUT_FILE" ]]; then
                 echo "" >> "$OUTPUT_FILE"
@@ -348,43 +382,25 @@ fi
         print_status ""
         print_status "Summary:"
     
-    # Skip counting for root listing (too expensive) or non-recursive when no specific folder
+    # Skip counting for root listing (too expensive) or use paginated counts
     if [[ -z "$FULL_FOLDER_PATH" ]]; then
         print_status "Counting skipped for root listing (too many files)"
         
-        # Count subfolders (non-recursive) - handle null case
-        TOTAL_SUBFOLDERS=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --prefix "$FULL_FOLDER_PATH" \
-            --delimiter "/" \
-            --endpoint-url "$ENDPOINT_URL" \
-            --region auto \
-            --query 'length(CommonPrefixes || `[]`)' \
-            --output text \
-            --no-cli-pager)
-        
+        # Count subfolders at root (paginated)
+        _counts=$(count_paginated "" "true")
+        TOTAL_SUBFOLDERS=${_counts#* }
         print_status "Total root folders: $TOTAL_SUBFOLDERS"
     else
-        # Count total objects - handle null case
-        TOTAL_OBJECTS=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --prefix "$FULL_FOLDER_PATH" \
-            --endpoint-url "$ENDPOINT_URL" \
-            --region auto \
-            --query 'length(Contents || `[]`)' \
-            --output text \
-            --no-cli-pager)
-        
-        # Count subfolders (non-recursive) - handle null case
-        TOTAL_SUBFOLDERS=$(aws s3api list-objects-v2 \
-            --bucket "$BUCKET" \
-            --prefix "$FULL_FOLDER_PATH" \
-            --delimiter "/" \
-            --endpoint-url "$ENDPOINT_URL" \
-            --region auto \
-            --query 'length(CommonPrefixes || `[]`)' \
-            --output text \
-            --no-cli-pager)
+        # Count total objects and subfolders with pagination
+        if [[ "$RECURSIVE" == true ]]; then
+            _counts=$(count_paginated "$FULL_FOLDER_PATH" "false")
+            TOTAL_OBJECTS=${_counts% *}
+            TOTAL_SUBFOLDERS=0
+        else
+            _counts=$(count_paginated "$FULL_FOLDER_PATH" "true")
+            TOTAL_OBJECTS=${_counts% *}
+            TOTAL_SUBFOLDERS=${_counts#* }
+        fi
         
         print_status "Total files: $TOTAL_OBJECTS"
         print_status "Total subfolders: $TOTAL_SUBFOLDERS"
