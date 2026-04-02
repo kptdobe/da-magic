@@ -4,6 +4,7 @@
 
 const {
   generateShardPrefixes,
+  generateHexShardPrefixes,
   keyBelongsToShard,
   filterObjectsByShard,
   getShardStats
@@ -118,23 +119,18 @@ assert(shards1.length === 1, 'Single shard: generates exactly 1 shard');
 assert(shards1[0].type === 'all', 'Single shard: type is "all"');
 assert(shards1[0].prefix === 'test/', 'Single shard: prefix matches base');
 
-// Test: Request 16 shards (returns full set of 66)
+// Test: Request any count returns the full explicit set (74: 62 alphanum + 12 special, no catch-all)
 const shards16 = generateShardPrefixes('test/', 16);
-assert(shards16.length === 66, '16 shards request: actually generates 66 for coverage');
-assert(shards16[0].type === 'catch-all', '16 shards request: first is catch-all');
-assert(shards16.slice(1).every(s => s.type === 'alphanum' || s.type === 'explicit'), 
-       '16 shards request: rest are alphanum/explicit');
+assert(shards16.length === 74, '16 shards request: actually generates 74 for coverage (no catch-all)');
+assert(shards16.every(s => s.type === 'alphanum' || s.type === 'explicit'),
+       '16 shards request: all are explicit type (no catch-all)');
 
-// Test: 65 shards (all explicit chars + catch-all)
 const shards66 = generateShardPrefixes('test/', 66);
-assert(shards66.length === 66, '66 shards: generates exactly 66 shards (62 alphanum + 3 special + 1 catch-all)');
-assert(shards66[0].type === 'catch-all', '66 shards: first is catch-all');
-assert(shards66.length === 66, '66 shards: covers 65 explicit chars + catch-all');
+assert(shards66.length === 74, '66 shards: generates exactly 74 shards (62 alphanum + 12 special)');
+assert(shards66.every(s => s.type === 'explicit' || s.type === 'alphanum'), '66 shards: all explicit, no catch-all');
 
-// Test: 67 shards (should still generate 66)
 const shards67 = generateShardPrefixes('test/', 67);
-assert(shards67.length === 66, '67 shards: generates exactly 66 shards');
-assert(shards67[0].type === 'catch-all', '67 shards: first is catch-all');
+assert(shards67.length === 74, '67 shards: generates exactly 74 shards');
 
 // Test: Prefix preservation
 const shardsPrefix = generateShardPrefixes('my/custom/prefix/', 10);
@@ -144,47 +140,32 @@ assert(shardsPrefix.every(s => s.prefix.startsWith('my/custom/prefix/')),
 section('2. Key Belonging Tests');
 
 const testShards = generateShardPrefixes('prefix/', 20);
-const catchAllShard = testShards[0];
-const firstAlphanumShard = testShards[1];
 
-// Test: Catch-all shard catches OTHER special characters
-assert(keyBelongsToShard('prefix/@special.json', catchAllShard, 'prefix/'), 
-       'Catch-all: catches @ files');
-assert(keyBelongsToShard('prefix/+plus.txt', catchAllShard, 'prefix/'), 
-       'Catch-all: catches + files');
-
-// Test: Catch-all does NOT catch explicit special chars (now handled by explicit shards)
-assert(!keyBelongsToShard('prefix/.htaccess', catchAllShard, 'prefix/'), 
-       'Catch-all: does NOT catch dot files (now explicit)');
-assert(!keyBelongsToShard('prefix/_config.yml', catchAllShard, 'prefix/'), 
-       'Catch-all: does NOT catch underscore files (now explicit)');
-assert(!keyBelongsToShard('prefix/-dash.txt', catchAllShard, 'prefix/'), 
-       'Catch-all: does NOT catch dash files (now explicit)');
-
-// Test: Catch-all does NOT catch alphanumeric
-assert(!keyBelongsToShard('prefix/apple.html', catchAllShard, 'prefix/'), 
-       'Catch-all: does not catch lowercase letters');
-assert(!keyBelongsToShard('prefix/Apple.html', catchAllShard, 'prefix/'), 
-       'Catch-all: does not catch uppercase letters');
-assert(!keyBelongsToShard('prefix/123.txt', catchAllShard, 'prefix/'), 
-       'Catch-all: does not catch numbers');
+// All known special chars have explicit shards — no catch-all
+assert(testShards.find(s => s.prefix === 'prefix/@'), 'Explicit: @ has its own shard');
+assert(testShards.find(s => s.prefix === 'prefix/.'), 'Explicit: . has its own shard');
+assert(testShards.find(s => s.prefix === 'prefix/_'), 'Explicit: _ has its own shard');
+assert(testShards.find(s => s.prefix === 'prefix/-'), 'Explicit: - has its own shard');
+assert(testShards.find(s => s.prefix === 'prefix/$'), 'Explicit: $ has its own shard');
+assert(!testShards.find(s => s.type === 'catch-all'), 'No catch-all shard in alphanum mode');
 
 section('3. Complete Coverage Tests');
 
 // Test: Every file belongs to exactly one shard
 const shards32 = generateShardPrefixes('prefix/', 32);
 
+// Chars not in our explicit list (#, $dollar already covered, ^, &, !) are intentionally skipped
+const notCoveredChars = new Set(['#', '^', '&', '!', '+']);
 testFiles.forEach(file => {
-  if (!file || file === 'prefix' || file === 'prefix/') {
-    return; // Skip edge cases for this test
-  }
-  
-  const matchingShards = shards32.filter(shard => 
+  if (!file || file === 'prefix' || file === 'prefix/') return;
+  const charAfterPrefix = file.substring('prefix/'.length)[0];
+  if (notCoveredChars.has(charAfterPrefix)) return;
+
+  const matchingShards = shards32.filter(shard =>
     keyBelongsToShard(file, shard, 'prefix/')
   );
-  
-  assert(matchingShards.length === 1, 
-         `Coverage: "${file}" belongs to exactly 1 shard (found ${matchingShards.length})`);
+  assert(matchingShards.length === 1,
+    `Coverage: "${file}" belongs to exactly 1 shard (found ${matchingShards.length})`);
 });
 
 section('4. Case Sensitivity Tests');
@@ -214,24 +195,31 @@ const mockObjects = [
   { Key: 'prefix/.htaccess', Size: 50 },
   { Key: 'prefix/123.txt', Size: 75 },
   { Key: 'prefix/_config.yml', Size: 30 },
-  { Key: 'prefix/@special.json', Size: 10 }, // Truly catch-all
+  { Key: 'prefix/@special.json', Size: 10 },
 ];
 
 const filterShards = generateShardPrefixes('prefix/', 20);
-const filterCatchAll = filterShards[0];
 
-const filtered = filterObjectsByShard(mockObjects, filterCatchAll, 'prefix/');
-assert(filtered.length === 1, `Filter: catch-all gets 1 special char file (got ${filtered.length}) - excludes explicit . and _`);
-assert(filtered[0].Key === 'prefix/@special.json', 'Filter: correctly kept @ file');
-assert(filtered.every(obj => !/^prefix\/[0-9a-zA-Z_.-]/.test(obj.Key)), 
-       'Filter: all filtered objects are truly special chars (no alphanum, ., _, -)');
+// All explicit shards are pass-through — S3 prefix already filtered
+const dotShard = filterShards.find(s => s.prefix === 'prefix/.');
+const atShard = filterShards.find(s => s.prefix === 'prefix/@');
+// S3 would only return .htaccess for the dot shard
+const s3DotResult = mockObjects.filter(o => o.Key.startsWith('prefix/.'));
+const filteredDot = filterObjectsByShard(s3DotResult, dotShard, 'prefix/');
+assert(filteredDot.length === 1, `Filter: dot shard pass-through keeps 1 object (got ${filteredDot.length})`);
+assert(filteredDot[0].Key === 'prefix/.htaccess', 'Filter: dot shard kept .htaccess');
+// S3 would only return @special for the @ shard
+const s3AtResult = mockObjects.filter(o => o.Key.startsWith('prefix/@'));
+const filteredAt = filterObjectsByShard(s3AtResult, atShard, 'prefix/');
+assert(filteredAt.length === 1, `Filter: @ shard pass-through keeps 1 object (got ${filteredAt.length})`);
+assert(filteredAt[0].Key === 'prefix/@special.json', 'Filter: @ shard kept @special.json');
 
 section('6. Statistics Tests');
 
 const stats = getShardStats(shards32);
-assert(stats.total === 66, `Stats: total is 66 (got ${stats.total})`);
-assert(stats.catchAll === 1, `Stats: catchAll is 1 (got ${stats.catchAll})`);
-assert(stats.alphanum === 65, `Stats: alphanum/explicit is 65 (got ${stats.alphanum})`);
+assert(stats.total === 74, `Stats: total is 74 (62 alphanum + 12 special, no catch-all), got ${stats.total}`);
+assert(stats.catchAll === 0, `Stats: catchAll is 0 (no catch-all), got ${stats.catchAll}`);
+assert(stats.alphanum === 74, `Stats: alphanum/explicit is 74 (got ${stats.alphanum})`);
 
 section('7. Nested Folder Tests (Critical)');
 
@@ -301,46 +289,128 @@ sameFileName.forEach(({ file, firstChar }) => {
 
 section('8. No Missing Files Test (Critical)');
 
-// This is the most important test: ensure ALL files are covered
-const comprehensiveFiles = [
+// Chars explicitly covered (derived from real S3 key data analysis)
+const coveredFiles = [
   // Every digit
   ...Array.from({length: 10}, (_, i) => `prefix/${i}file.txt`),
   // Every lowercase letter
   ...'abcdefghijklmnopqrstuvwxyz'.split('').map(c => `prefix/${c}file.txt`),
-  // Every uppercase letter  
+  // Every uppercase letter
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(c => `prefix/${c}file.txt`),
-  // Common special characters
-  'prefix/.htaccess',
-  'prefix/_file.txt',
-  'prefix/-file.txt',
-  'prefix/@file.txt',
-  'prefix/#file.txt',
-  'prefix/$file.txt',
-  'prefix/%file.txt',
-  'prefix/^file.txt',
-  'prefix/&file.txt',
-  'prefix/!file.txt',
+  // All explicit special chars
+  `prefix/.htaccess`, `prefix/_file.txt`, `prefix/-file.txt`, `prefix/@file.txt`,
+  `prefix/$file.txt`, `prefix/%file.txt`, `prefix/'file.txt`, `prefix/(file.txt`,
+  `prefix/,file.txt`, `prefix/;file.txt`, `prefix/[file.txt`, `prefix/~file.txt`,
+];
+
+// Chars NOT covered (not found in real data — intentional)
+const notCoveredFiles = [
+  'prefix/#file.txt', 'prefix/^file.txt', 'prefix/&file.txt', 'prefix/!file.txt',
 ];
 
 const testShardCounts = [1, 10, 16, 32, 62, 63];
 
 testShardCounts.forEach(count => {
   const shards = generateShardPrefixes('prefix/', count);
-  const uncovered = [];
-  
-  comprehensiveFiles.forEach(file => {
-    const matchingShards = shards.filter(shard => 
-      keyBelongsToShard(file, shard, 'prefix/')
+
+  const uncovered = coveredFiles.filter(file =>
+    shards.filter(shard => keyBelongsToShard(file, shard, 'prefix/')).length === 0
+  );
+  assert(uncovered.length === 0,
+    `No missing covered files with ${count} shards (${uncovered.length} uncovered: ${uncovered.slice(0, 5).join(', ')})`);
+
+  if (count > 1) {
+    const wronglyCovered = notCoveredFiles.filter(file =>
+      shards.filter(shard => keyBelongsToShard(file, shard, 'prefix/')).length > 0
     );
-    
-    if (matchingShards.length === 0) {
-      uncovered.push(file);
-    }
-  });
-  
-  assert(uncovered.length === 0, 
-         `No missing files with ${count} shards (${uncovered.length} uncovered: ${uncovered.slice(0, 5).join(', ')})`);
+    assert(wronglyCovered.length === 0,
+      `Non-data chars not covered with ${count} shards (${wronglyCovered.join(', ')})`);
+  }
 });
+
+section('9. Hex Shard Generation Tests');
+
+// Default: 256 hex shards only
+const hexShards = generateHexShardPrefixes('org/.da-versions/');
+assert(hexShards.length === 256, `Hex: default generates 256 shards, got ${hexShards.length}`);
+assert(hexShards[0].prefix === 'org/.da-versions/00', 'Hex: first shard is 00');
+assert(hexShards[255].prefix === 'org/.da-versions/ff', 'Hex: last shard is ff');
+assert(hexShards.every(s => s.type === 'hex'), 'Hex: all default shards are hex type');
+
+// With extraChars: 256 + N explicit shards, no full-scan catch-all
+const hexShardsWithExtra = generateHexShardPrefixes('org/.da-versions/', { extraChars: ['.', '_', '-', '@'] });
+assert(hexShardsWithExtra.length === 260, `Hex: with 4 extraChars generates 260 shards, got ${hexShardsWithExtra.length}`);
+assert(hexShardsWithExtra.slice(0, 256).every(s => s.type === 'hex'), 'Hex: first 256 are hex type');
+assert(hexShardsWithExtra.slice(256).every(s => s.type === 'explicit'), 'Hex: last 4 are explicit type');
+assert(hexShardsWithExtra[256].prefix === 'org/.da-versions/.', 'Hex: extra shard for "."');
+assert(hexShardsWithExtra[259].prefix === 'org/.da-versions/@', 'Hex: extra shard for "@"');
+
+// Backward compat alias for tests below
+const hexShardsWithCatchAll = hexShardsWithExtra;
+
+section('10. Hex Shard Coverage Tests');
+
+const hexBase = 'org/.da-versions/';
+// UUID keys: covered by hex shards (no catch-all needed)
+const hexUuidFiles = [
+  { key: 'org/.da-versions/00abc123/file.html', expectHexPrefix: '00' },
+  { key: 'org/.da-versions/ff000000-1234/file.json', expectHexPrefix: 'ff' },
+  { key: 'org/.da-versions/a1b2c3d4/file.html', expectHexPrefix: 'a1' },
+  { key: 'org/.da-versions/9f3e2100/file.png', expectHexPrefix: '9f' },
+];
+
+hexUuidFiles.forEach(({ key, expectHexPrefix }) => {
+  const matchingShards = hexShards.filter(s => key.startsWith(s.prefix));
+  assert(matchingShards.length === 1, `Hex coverage: "${key}" matches exactly 1 hex shard (got ${matchingShards.length})`);
+  if (matchingShards.length === 1) {
+    assert(matchingShards[0].prefix === hexBase + expectHexPrefix,
+      `Hex: "${key}" goes to shard ${expectHexPrefix}`);
+  }
+});
+
+// Special char keys: not caught by default hex shards, caught by explicit extra shards
+const hexSpecialFiles = [
+  { key: 'org/.da-versions/.hidden/file.html', char: '.' },
+  { key: 'org/.da-versions/_private/file.txt', char: '_' },
+  { key: 'org/.da-versions/-dash/file.svg', char: '-' },
+  { key: 'org/.da-versions/@special/file.pdf', char: '@' },
+];
+
+hexSpecialFiles.forEach(({ key, char }) => {
+  const matchInDefault = hexShards.filter(s => key.startsWith(s.prefix));
+  assert(matchInDefault.length === 0, `Hex: "${key}" not matched by default hex shards`);
+
+  const matchWithExtra = hexShardsWithExtra.filter(s => key.startsWith(s.prefix));
+  assert(matchWithExtra.length === 1, `Hex: "${key}" matched by explicit extra shard (got ${matchWithExtra.length})`);
+  assert(matchWithExtra[0].type === 'explicit', `Hex: "${key}" goes to explicit shard for '${char}'`);
+  assert(matchWithExtra[0].prefix === hexBase + char, `Hex: "${key}" shard prefix is ${hexBase + char}`);
+});
+
+section('11. Hex FilterObjectsByShard Tests');
+
+// For filter tests, use a manually constructed catch-all-hex shard to test that code path
+const hexCatchAll = { prefix: hexBase, type: 'catch-all-hex', description: 'test', charRange: null };
+const hexMockObjects = [
+  { Key: 'org/.da-versions/00abcdef/file.html', Size: 100 },
+  { Key: 'org/.da-versions/ff123456/file.json', Size: 200 },
+  { Key: 'org/.da-versions/.hidden/file.html', Size: 50 },
+  { Key: 'org/.da-versions/_private/file.txt', Size: 75 },
+  { Key: 'org/.da-versions/-dash/file.svg', Size: 30 },
+  { Key: 'org/.da-versions/@other/file.pdf', Size: 10 },
+];
+
+const hexFiltered = filterObjectsByShard(hexMockObjects, hexCatchAll, hexBase);
+assert(hexFiltered.length === 4, `Hex filter: catch-all-hex keeps 4 special-char files (got ${hexFiltered.length})`);
+assert(hexFiltered.every(o => !/^org\/.da-versions\/[0-9a-f]{2}/i.test(o.Key)),
+  'Hex filter: no hex-prefixed keys in catch-all result');
+
+// For hex shards, S3 has already filtered by prefix — filterObjectsByShard is a pass-through.
+// Simulate what S3 returns: only objects matching the shard prefix.
+const hexShard00 = hexShardsWithCatchAll.find(s => s.prefix === 'org/.da-versions/00');
+const s3ResultFor00 = hexMockObjects.filter(o => o.Key.startsWith(hexShard00.prefix));
+const hexFiltered00 = filterObjectsByShard(s3ResultFor00, hexShard00, hexBase);
+assert(hexFiltered00.length === 1, `Hex filter: shard 00 pass-through keeps 1 object (got ${hexFiltered00.length})`);
+assert(hexFiltered00[0].Key === 'org/.da-versions/00abcdef/file.html', 'Hex filter: shard 00 kept correct key');
 
 // ==================== SUMMARY ====================
 

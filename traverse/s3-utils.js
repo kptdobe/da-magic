@@ -7,7 +7,7 @@ const { NodeHttpHandler } = require('@smithy/node-http-handler');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { generateShardPrefixes, filterObjectsByShard, getShardStats } = require('./sharding.js');
+const { generateShardPrefixes, generateHexShardPrefixes, filterObjectsByShard, getShardStats } = require('./sharding.js');
 
 /**
  * Load environment variables from .dev.vars file
@@ -247,15 +247,16 @@ async function processShards(options) {
  * @returns {string} Formatted label
  */
 function formatShardLabel(shard) {
-  const isCatchAll = shard.type === 'catch-all';
-  const shardPrefix = shard.prefix;
-  
-  if (isCatchAll) {
-    return `${shardPrefix}[^0-9a-zA-Z]*`;
+  if (shard.type === 'catch-all') {
+    return `${shard.prefix}[^0-9a-zA-Z]*`;
+  } else if (shard.type === 'catch-all-hex') {
+    return `${shard.prefix}[^0-9a-f]*`;
+  } else if (shard.type === 'hex') {
+    return `${shard.prefix}*`;
   } else if (shard.charRange && shard.charRange.length > 1) {
-    return `${shardPrefix}[${shard.charRange[0]}-${shard.charRange[shard.charRange.length-1]}]`;
+    return `${shard.prefix}[${shard.charRange[0]}-${shard.charRange[shard.charRange.length-1]}]`;
   } else {
-    return `${shardPrefix}*`;
+    return `${shard.prefix}*`;
   }
 }
 
@@ -265,10 +266,13 @@ function formatShardLabel(shard) {
  */
 function displayShardInfo(shards) {
   const shardStats = getShardStats(shards);
-  
+
   console.log(`Generated ${shards.length} shard prefixes`);
   if (shardStats.catchAll > 0) {
-    console.log(`  - ${shardStats.catchAll} catch-all shard (for ., _, etc.)`);
+    console.log(`  - ${shardStats.catchAll} catch-all shard`);
+  }
+  if (shardStats.hex > 0) {
+    console.log(`  - ${shardStats.hex} hex shards (00-ff)`);
   }
   if (shardStats.alphanum > 0) {
     console.log(`  - ${shardStats.alphanum} alphanumeric shards (0-9, A-Z, a-z)`);
@@ -276,7 +280,7 @@ function displayShardInfo(shards) {
   if (shardStats.all > 0) {
     console.log(`  - ${shardStats.all} shard (all files)`);
   }
-  
+
   // Show sample of shard prefixes (limit to first 20)
   const prefixSamples = shards.slice(0, 20).map(formatShardLabel);
   console.log('Shard prefixes:', prefixSamples.join(', ') + (shards.length > 20 ? ', ...' : ''));
@@ -290,6 +294,7 @@ module.exports = {
   formatShardLabel,
   displayShardInfo,
   generateShardPrefixes,
+  generateHexShardPrefixes,
   filterObjectsByShard,
   getShardStats
 };

@@ -9,6 +9,7 @@ const {
   loadEnvVars,
   createS3Client,
   generateShardPrefixes,
+  generateHexShardPrefixes,
   filterObjectsByShard,
   listShardObjects,
   displayShardInfo,
@@ -16,31 +17,46 @@ const {
 } = require('./s3-utils.js');
 
 // Parse command line arguments
-if (process.argv.length < 3) {
-  console.error('Usage: node traverse.js <prefix> [output-file]');
+// --hex-extra=.,_,-,@ adds explicit shards for those characters alongside hex shards
+const hexExtraArg = process.argv.find(a => a.startsWith('--hex-extra='));
+const hexExtraChars = hexExtraArg ? hexExtraArg.split('=')[1].split(',') : [];
+const args = process.argv.slice(2).filter(a => a !== '--hex' && !a.startsWith('--hex-extra'));
+const explicitHex = process.argv.includes('--hex') || !!hexExtraArg;
+
+if (args.length < 1) {
+  console.error('Usage: node traverse.js [--hex] <prefix> [output-file]');
   console.error('Example: node traverse.js /kptdobe files.csv');
   console.error('Example: node traverse.js kptdobe/daplayground output.csv');
+  console.error('Example: node traverse.js --hex adobecom/.da-versions/ versions.csv');
   console.error('');
   console.error('Arguments:');
   console.error('  prefix       - Path prefix to traverse (e.g., /kptdobe or kptdobe/subfolder)');
   console.error('  output-file  - CSV output file (default: files.csv)');
   console.error('');
-  console.error('Note: Always uses 63 concurrent shards for complete coverage');
-  console.error('      (1 catch-all + 62 alphanumeric: 0-9, A-Z, a-z)');
+  console.error('Options:');
+  console.error('  --hex                Use 256 two-char hex shards (00-ff). Best for UUID-keyed');
+  console.error('                       paths like org/.da-versions/.');
+  console.error('  --hex-extra=<chars>  Like --hex plus explicit shards for given first chars.');
+  console.error('                       E.g. --hex-extra=.,_,-,@ adds one focused S3 query per char.');
+  console.error('');
+  console.error('Note: Default uses 66 concurrent shards (1 catch-all + 65 alphanumeric/special)');
   process.exit(1);
 }
 
 const bucket = 'aem-content';
-let prefix = process.argv[2];
+let prefix = args[0];
 
 // Remove leading slash if present
 if (prefix.startsWith('/')) {
   prefix = prefix.substring(1);
 }
 
-const outputFile = process.argv[3] || 'files.csv';
-// Note: shardCount parameter is kept for API compatibility but always uses 63 internally  
-const shardCount = 63; // Always use 63 for complete coverage (1 catch-all + 62 alphanumeric)
+const outputFile = args[1] || 'files.csv';
+const shardCount = 63; // Used only in non-hex mode
+
+// Auto-detect hex mode: explicit flag, or direct traversal of a .da-versions path.
+// When traversing at org root, generateShardPrefixes auto-expands .da-versions/ with hex shards.
+const useHex = explicitHex || prefix.includes('.da-versions');
 
 // Initialize S3 client
 const envVars = loadEnvVars();
@@ -68,7 +84,6 @@ async function listShard(shard, shardId) {
   let shardKeyCount = 0;
   const startTime = Date.now();
   const shardPrefix = shard.prefix;
-  const isCatchAll = shard.type === 'catch-all';
   
   try {
     do {
@@ -136,7 +151,12 @@ async function main() {
   console.log(`Bucket: ${bucket}`);
   console.log(`Prefix: ${prefix}`);
   console.log(`Output: ${outputFile}`);
-  console.log(`Shards: 63 concurrent (complete coverage)`);
+  const hexExtra = hexExtraChars.length ? ` + explicit: ${hexExtraChars.join(',')}` : '';
+  const hexReason = useHex && !explicitHex ? ' [auto: .da-versions]' : '';
+  const modeLabel = useHex
+    ? `hex (256 two-char shards, 00-ff${hexExtra})${hexReason}`
+    : '66 concurrent shards + .da-versions auto-expanded to hex';
+  console.log(`Mode:   ${modeLabel}`);
   console.log('');
   
   // Create output stream with CSV header
@@ -149,7 +169,9 @@ async function main() {
   
   try {
     // Generate shard prefixes
-    const shards = generateShardPrefixes(prefix, shardCount);
+    const shards = useHex
+      ? generateHexShardPrefixes(prefix, { extraChars: hexExtraChars })
+      : generateShardPrefixes(prefix, shardCount, { expandPaths: ['.da-versions/'] });
     displayShardInfo(shards);
     
     console.log('');
