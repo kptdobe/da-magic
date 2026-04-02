@@ -9,4 +9,5 @@ node_modules
 *.txt
 .DS_Store
 *.csv
+*.tsv
 .data
