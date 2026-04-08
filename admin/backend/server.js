@@ -55,9 +55,15 @@ const normalizePath = (documentPath) => {
   return documentPath.replace(/^\//, '').toLowerCase();
 };
 
-// Helper function to extract root path
+// Helper function to extract root path (org)
 const getRootPath = (documentPath) => {
   return documentPath.split('/')[0];
+};
+
+// Helper function to extract repo path (org/repo)
+const getRepoPath = (documentPath) => {
+  const parts = documentPath.split('/');
+  return parts.slice(0, 2).join('/');
 };
 
 // Helper function to format file size
@@ -287,38 +293,64 @@ app.get('/api/versions/:path(*)', async (req, res) => {
       });
     }
     
-    // Construct versions path
+    // Construct both legacy and new versions paths
     const rootPath = getRootPath(documentPath);
-    const versionsPath = `${rootPath}/.da-versions/${id}/`;
-    
-    // List files in versions folder
-    const listCommand = new ListObjectsV2Command({
-      Bucket: BUCKET_NAME,
-      Prefix: versionsPath
-    });
-    
-    const versions = await s3Client.send(listCommand);
-    
-    // Check if versions folder exists and has contents
-    if (!versions.Contents || versions.Contents.length === 0) {
+    const repoPath = getRepoPath(documentPath);
+    const legacyVersionsPath = `${rootPath}/.da-versions/${id}/`;
+    const newVersionsPath = `${repoPath}/.da-versions/${id}/`;
+
+    // List both locations in parallel
+    const [legacyResult, newResult] = await Promise.allSettled([
+      s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: legacyVersionsPath })),
+      s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: newVersionsPath }))
+    ]);
+
+    const legacyObjects = (legacyResult.status === 'fulfilled' && legacyResult.value.Contents)
+      ? legacyResult.value.Contents.filter(obj => obj.Key !== legacyVersionsPath)
+      : [];
+
+    const newObjects = (newResult.status === 'fulfilled' && newResult.value.Contents)
+      ? newResult.value.Contents.filter(obj => obj.Key !== newVersionsPath)
+      : [];
+
+    // Separate audit.txt from new version snapshots
+    const auditKey = `${newVersionsPath}audit.txt`;
+    const newSnapshotObjects = newObjects.filter(obj => obj.Key !== auditKey);
+    const auditObject = newObjects.find(obj => obj.Key === auditKey);
+
+    // Fetch audit.txt content if present
+    let auditContent = null;
+    if (auditObject) {
+      try {
+        const auditStream = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: auditKey }));
+        const auditBuffer = await streamToBuffer(auditStream.Body);
+        auditContent = auditBuffer.toString('utf8');
+      } catch (err) {
+        console.error('Error fetching audit.txt:', err);
+      }
+    }
+
+    const allObjects = [
+      ...legacyObjects.map(obj => ({ obj, location: 'legacy' })),
+      ...newSnapshotObjects.map(obj => ({ obj, location: 'new' }))
+    ];
+
+    if (allObjects.length === 0 && !auditContent) {
       return res.json({
         success: true,
         versions: [],
-        versionsPath: versionsPath,
+        legacyVersionsPath,
+        newVersionsPath,
+        auditContent: null,
         message: 'No versions found for this document'
       });
     }
-    
+
     // Get metadata for all versions in parallel
-    const versionObjects = versions.Contents.filter(obj => obj.Key !== versionsPath);
-    
-    const metadataPromises = versionObjects.map(async (obj) => {
+    const metadataPromises = allObjects.map(async ({ obj, location }) => {
       try {
-        const headCommand = new HeadObjectCommand({
-          Bucket: BUCKET_NAME,
-          Key: obj.Key
-        });
-        const metadata = await s3Client.send(headCommand);
+        const headCmd = new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: obj.Key });
+        const meta = await s3Client.send(headCmd);
         return {
           key: obj.Key,
           path: `/${obj.Key}`,
@@ -326,12 +358,12 @@ app.get('/api/versions/:path(*)', async (req, res) => {
           size: obj.Size,
           sizeFormatted: formatFileSize(obj.Size),
           lastModified: obj.LastModified,
-          metadata: metadata.Metadata || {},
-          contentType: metadata.ContentType
+          metadata: meta.Metadata || {},
+          contentType: meta.ContentType,
+          location
         };
       } catch (error) {
         console.error(`Error fetching metadata for ${obj.Key}:`, error);
-        // Return basic info if metadata fetch fails
         return {
           key: obj.Key,
           path: `/${obj.Key}`,
@@ -340,20 +372,23 @@ app.get('/api/versions/:path(*)', async (req, res) => {
           sizeFormatted: formatFileSize(obj.Size),
           lastModified: obj.LastModified,
           metadata: {},
-          contentType: null
+          contentType: null,
+          location
         };
       }
     });
-    
+
     const versionsWithMetadata = await Promise.all(metadataPromises);
-    
+
     // Sort by date, newest first
     const formattedVersions = versionsWithMetadata.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
-    
+
     res.json({
       success: true,
       versions: formattedVersions,
-      versionsPath: versionsPath
+      legacyVersionsPath,
+      newVersionsPath,
+      auditContent
     });
     
   } catch (error) {

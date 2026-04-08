@@ -526,6 +526,77 @@
   background-color: #21a0c4;
 }
 
+/* Version location groups */
+.versions-group {
+  margin-bottom: 20px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid transparent;
+}
+
+.versions-group-new {
+  border-color: #198754;
+}
+
+.versions-group-legacy {
+  border-color: #ffc107;
+}
+
+.versions-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 15px;
+}
+
+.versions-group-new .versions-group-header {
+  background-color: #d1e7dd;
+  color: #0a5c36;
+}
+
+.versions-group-legacy .versions-group-header {
+  background-color: #fff3cd;
+  color: #664d03;
+}
+
+.versions-group-label {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.versions-group-path {
+  font-size: 12px;
+  font-family: 'Courier New', Courier, monospace;
+  opacity: 0.75;
+}
+
+/* audit.txt section */
+.audit-section {
+  border-bottom: 1px solid #198754;
+}
+
+.audit-title {
+  padding: 8px 15px;
+  background-color: #e8f5ee;
+  color: #0a5c36;
+  font-size: 13px;
+  font-weight: bold;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.audit-content {
+  margin: 0;
+  padding: 15px;
+  background-color: #f8fff9;
+  font-size: 12px;
+  font-family: 'Courier New', Courier, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #212529;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 @media (max-width: 768px) {
   .versions-container {
     flex-direction: column;

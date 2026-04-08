@@ -54,12 +54,14 @@ interface Version {
   lastModified: string;
   metadata: { [key: string]: string };
   contentType: string | null;
+  location: 'legacy' | 'new';
 }
 
 function App() {
   const [documentPath, setDocumentPath] = useState('');
   const [documentData, setDocumentData] = useState<DocumentData | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
+  const [auditContent, setAuditContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<DocumentData | null>(null);
@@ -202,6 +204,7 @@ function App() {
     setError(null);
     setDocumentData(null);
     setVersions([]);
+    setAuditContent(null);
     setSelectedVersion(null);
     setSelectedVersionPath(null);
 
@@ -222,6 +225,7 @@ function App() {
 
       if (versionsResult.success) {
         setVersions(versionsResult.versions);
+        setAuditContent(versionsResult.auditContent || null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -344,8 +348,9 @@ function App() {
           <div className="versions-container">
             <div className="versions-section">
               <h2>Versions ({versions.length})</h2>
-              <VersionsList 
-                versions={versions} 
+              <VersionsList
+                versions={versions}
+                auditContent={auditContent}
                 onVersionPreview={handleVersionPreview}
                 selectedVersionPath={selectedVersionPath}
               />
