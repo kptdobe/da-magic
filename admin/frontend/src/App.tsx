@@ -63,6 +63,7 @@ function App() {
   const [versions, setVersions] = useState<Version[]>([]);
   const [auditContent, setAuditContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<DocumentData | null>(null);
   const [selectedVersionPath, setSelectedVersionPath] = useState<string | null>(null);
@@ -220,12 +221,17 @@ function App() {
       setDocumentData(docResult);
 
       // Fetch versions using the extracted path
-      const versionsResponse = await fetch(`/api/versions/${encodeURIComponent(extractedPath)}`);
-      const versionsResult = await versionsResponse.json();
+      setVersionsLoading(true);
+      try {
+        const versionsResponse = await fetch(`/api/versions/${encodeURIComponent(extractedPath)}`);
+        const versionsResult = await versionsResponse.json();
 
-      if (versionsResult.success) {
-        setVersions(versionsResult.versions);
-        setAuditContent(versionsResult.auditContent || null);
+        if (versionsResult.success) {
+          setVersions(versionsResult.versions);
+          setAuditContent(versionsResult.auditContent || null);
+        }
+      } finally {
+        setVersionsLoading(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -347,13 +353,17 @@ function App() {
         {documentData && (
           <div className="versions-container">
             <div className="versions-section">
-              <h2>Versions ({versions.length})</h2>
-              <VersionsList
-                versions={versions}
-                auditContent={auditContent}
-                onVersionPreview={handleVersionPreview}
-                selectedVersionPath={selectedVersionPath}
-              />
+              <h2>Versions {versionsLoading ? <span className="versions-spinner" /> : `(${versions.length})`}</h2>
+              {versionsLoading ? (
+                <div className="versions-loading">Loading versions…</div>
+              ) : (
+                <VersionsList
+                  versions={versions}
+                  auditContent={auditContent}
+                  onVersionPreview={handleVersionPreview}
+                  selectedVersionPath={selectedVersionPath}
+                />
+              )}
             </div>
             
             <div className="version-preview-section">

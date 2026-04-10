@@ -156,6 +156,28 @@
   min-width: 0; /* Allows flex item to shrink below content size */
 }
 
+.versions-loading {
+  color: #666;
+  padding: 20px 0;
+  font-size: 14px;
+}
+
+.versions-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ccc;
+  border-top-color: #555;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .version-preview-section {
   background-color: white;
   border-radius: 8px;
