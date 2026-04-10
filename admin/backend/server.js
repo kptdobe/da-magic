@@ -75,6 +75,20 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + sizes[i];
 };
 
+// Helper function to paginate all S3 objects under a prefix
+const listAllObjects = async (prefix) => {
+  const objects = [];
+  let continuationToken;
+  do {
+    const params = { Bucket: BUCKET_NAME, Prefix: prefix };
+    if (continuationToken) params.ContinuationToken = continuationToken;
+    const result = await s3Client.send(new ListObjectsV2Command(params));
+    if (result.Contents) objects.push(...result.Contents);
+    continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return objects;
+};
+
 // Helper function to convert stream to buffer
 const streamToBuffer = async (stream) => {
   const chunks = [];
@@ -299,18 +313,18 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     const legacyVersionsPath = `${rootPath}/.da-versions/${id}/`;
     const newVersionsPath = `${repoPath}/.da-versions/${id}/`;
 
-    // List both locations in parallel
+    // List both locations in parallel (fully paginated)
     const [legacyResult, newResult] = await Promise.allSettled([
-      s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: legacyVersionsPath })),
-      s3Client.send(new ListObjectsV2Command({ Bucket: BUCKET_NAME, Prefix: newVersionsPath }))
+      listAllObjects(legacyVersionsPath),
+      listAllObjects(newVersionsPath)
     ]);
 
-    const legacyObjects = (legacyResult.status === 'fulfilled' && legacyResult.value.Contents)
-      ? legacyResult.value.Contents.filter(obj => obj.Key !== legacyVersionsPath)
+    const legacyObjects = legacyResult.status === 'fulfilled'
+      ? legacyResult.value.filter(obj => obj.Key !== legacyVersionsPath)
       : [];
 
-    const newObjects = (newResult.status === 'fulfilled' && newResult.value.Contents)
-      ? newResult.value.Contents.filter(obj => obj.Key !== newVersionsPath)
+    const newObjects = newResult.status === 'fulfilled'
+      ? newResult.value.filter(obj => obj.Key !== newVersionsPath)
       : [];
 
     // Separate audit.txt from new version snapshots
