@@ -571,6 +571,49 @@
   padding: 10px 15px;
 }
 
+.versions-group-toggle {
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.versions-group-toggle:hover {
+  filter: brightness(0.95);
+}
+
+.versions-group-collapse-arrow {
+  font-size: 10px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.versions-group-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.versions-group-count {
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 10px;
+  padding: 1px 8px;
+  align-self: center;
+}
+
+.versions-group-count-versions {
+  background-color: rgba(0, 0, 0, 0.13);
+}
+
+.versions-group-count-audit {
+  background-color: rgba(0, 0, 0, 0.07);
+  font-weight: normal;
+}
+
 .versions-group-new .versions-group-header {
   background-color: #d1e7dd;
   color: #0a5c36;

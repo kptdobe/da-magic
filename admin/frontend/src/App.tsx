@@ -61,7 +61,7 @@ function App() {
   const [documentPath, setDocumentPath] = useState('');
   const [documentData, setDocumentData] = useState<DocumentData | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
-  const [auditContent, setAuditContent] = useState<string | null>(null);
+  const [auditFiles, setAuditFiles] = useState<{ filename: string; key: string; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +205,7 @@ function App() {
     setError(null);
     setDocumentData(null);
     setVersions([]);
-    setAuditContent(null);
+    setAuditFiles([]);
     setSelectedVersion(null);
     setSelectedVersionPath(null);
 
@@ -228,7 +228,7 @@ function App() {
 
         if (versionsResult.success) {
           setVersions(versionsResult.versions);
-          setAuditContent(versionsResult.auditContent || null);
+          setAuditFiles(versionsResult.auditFiles || []);
         }
       } finally {
         setVersionsLoading(false);
@@ -353,13 +353,13 @@ function App() {
         {documentData && (
           <div className="versions-container">
             <div className="versions-section">
-              <h2>Versions {versionsLoading ? <span className="versions-spinner" /> : `(${versions.length})`}</h2>
+              <h2>Versions {versionsLoading && <span className="versions-spinner" />}</h2>
               {versionsLoading ? (
                 <div className="versions-loading">Loading versions…</div>
               ) : (
                 <VersionsList
                   versions={versions}
-                  auditContent={auditContent}
+                  auditFiles={auditFiles}
                   onVersionPreview={handleVersionPreview}
                   selectedVersionPath={selectedVersionPath}
                 />

@@ -327,35 +327,46 @@ app.get('/api/versions/:path(*)', async (req, res) => {
       ? newResult.value.filter(obj => obj.Key !== newVersionsPath)
       : [];
 
-    // Separate audit.txt from new version snapshots
-    const auditKey = `${newVersionsPath}audit.txt`;
-    const newSnapshotObjects = newObjects.filter(obj => obj.Key !== auditKey);
-    const auditObject = newObjects.find(obj => obj.Key === auditKey);
+    // Separate audit files (audit.txt and audit-{timestamp}.txt) from version snapshots
+    const isAuditFile = (key) => /^audit(-\d+)?\.txt$/.test(key.split('/').pop());
+    const newSnapshotObjects = newObjects.filter(obj => !isAuditFile(obj.Key));
+    const auditObjects = newObjects.filter(obj => isAuditFile(obj.Key));
 
-    // Fetch audit.txt content if present
-    let auditContent = null;
-    if (auditObject) {
-      try {
-        const auditStream = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: auditKey }));
-        const auditBuffer = await streamToBuffer(auditStream.Body);
-        auditContent = auditBuffer.toString('utf8');
-      } catch (err) {
-        console.error('Error fetching audit.txt:', err);
-      }
-    }
+    // Sort audit files: archived files by timestamp ascending (oldest first), audit.txt last
+    auditObjects.sort((a, b) => {
+      const nameA = a.Key.split('/').pop();
+      const nameB = b.Key.split('/').pop();
+      const tsA = nameA === 'audit.txt' ? Infinity : parseInt(nameA.match(/audit-(\d+)\.txt/)[1], 10);
+      const tsB = nameB === 'audit.txt' ? Infinity : parseInt(nameB.match(/audit-(\d+)\.txt/)[1], 10);
+      return tsA - tsB;
+    });
+
+    // Fetch content for all audit files in parallel
+    const auditFiles = (await Promise.all(
+      auditObjects.map(async (obj) => {
+        try {
+          const stream = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: obj.Key }));
+          const buffer = await streamToBuffer(stream.Body);
+          return { filename: obj.Key.split('/').pop(), key: obj.Key, content: buffer.toString('utf8') };
+        } catch (err) {
+          console.error(`Error fetching ${obj.Key}:`, err);
+          return null;
+        }
+      })
+    )).filter(Boolean);
 
     const allObjects = [
       ...legacyObjects.map(obj => ({ obj, location: 'legacy' })),
       ...newSnapshotObjects.map(obj => ({ obj, location: 'new' }))
     ];
 
-    if (allObjects.length === 0 && !auditContent) {
+    if (allObjects.length === 0 && auditFiles.length === 0) {
       return res.json({
         success: true,
         versions: [],
         legacyVersionsPath,
         newVersionsPath,
-        auditContent: null,
+        auditFiles: [],
         message: 'No versions found for this document'
       });
     }
@@ -402,7 +413,7 @@ app.get('/api/versions/:path(*)', async (req, res) => {
       versions: formattedVersions,
       legacyVersionsPath,
       newVersionsPath,
-      auditContent
+      auditFiles
     });
     
   } catch (error) {
