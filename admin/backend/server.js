@@ -332,15 +332,6 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     const newSnapshotObjects = newObjects.filter(obj => !isAuditFile(obj.Key));
     const auditObjects = newObjects.filter(obj => isAuditFile(obj.Key));
 
-    // Sort audit files: archived files by timestamp ascending (oldest first), audit.txt last
-    auditObjects.sort((a, b) => {
-      const nameA = a.Key.split('/').pop();
-      const nameB = b.Key.split('/').pop();
-      const tsA = nameA === 'audit.txt' ? Infinity : parseInt(nameA.match(/audit-(\d+)\.txt/)[1], 10);
-      const tsB = nameB === 'audit.txt' ? Infinity : parseInt(nameB.match(/audit-(\d+)\.txt/)[1], 10);
-      return tsA - tsB;
-    });
-
     // Fetch content for all audit files in parallel
     const auditFiles = (await Promise.all(
       auditObjects.map(async (obj) => {

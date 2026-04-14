@@ -68,6 +68,17 @@ const VersionTable: React.FC<VersionTableProps> = ({ versions, onVersionPreview,
   </>
 );
 
+const formatAuditTimestamp = (raw: string): string => {
+  const ts = parseInt(raw, 10);
+  if (isNaN(ts)) return raw;
+  const date = new Date(ts);
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const day = date.getDate();
+  const year = date.getFullYear();
+  const time = date.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${month} ${day}, ${year} ${time}(${raw})`;
+};
+
 // New format: tab-separated lines — col[4] is the version id (empty = audit-only entry)
 const countNewFormat = (files: AuditFile[]) => {
   let versions = 0;
@@ -91,6 +102,15 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVer
   const legacyVersions = versions.filter(v => v.location === 'legacy');
   const [newCollapsed, setNewCollapsed] = useState(false);
   const [legacyCollapsed, setLegacyCollapsed] = useState(false);
+
+  // audit.txt first, then archived files newest-first
+  const sortedAuditFiles = [...auditFiles].sort((a, b) => {
+    if (a.filename === 'audit.txt') return -1;
+    if (b.filename === 'audit.txt') return 1;
+    const tsA = parseInt(a.filename.match(/audit-(\d+)\.txt/)?.[1] ?? '0', 10);
+    const tsB = parseInt(b.filename.match(/audit-(\d+)\.txt/)?.[1] ?? '0', 10);
+    return tsB - tsA;
+  });
 
   // New format counts come from parsing the audit file lines
   const newCounts = countNewFormat(auditFiles);
@@ -127,10 +147,21 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVer
           </button>
           {!newCollapsed && (
             <>
-              {auditFiles.map((auditFile) => (
+              {sortedAuditFiles.map((auditFile) => (
                 <div key={auditFile.key} className="audit-section">
                   <div className="audit-title">{auditFile.filename}</div>
-                  <pre className="audit-content">{auditFile.content}</pre>
+                  <div className="audit-content">
+                    {auditFile.content.split('\n').filter(l => l.trim()).reverse().map((line, i) => {
+                      const [ts, users = '', path = '', label = '', versionId = ''] = line.split('\t');
+                      const reordered = [users, label, versionId, path].join('\t');
+                      return (
+                        <div key={i} className="audit-line">
+                          <span className="audit-timestamp">{formatAuditTimestamp(ts)}</span>
+                          {'\t'}{reordered}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
               {newVersions.length > 0 && (

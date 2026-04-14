@@ -655,11 +655,19 @@
   background-color: #f8fff9;
   font-size: 12px;
   font-family: 'Courier New', Courier, monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
   color: #212529;
   max-height: 300px;
   overflow-y: auto;
+}
+
+.audit-line {
+  white-space: pre;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+.audit-timestamp {
+  color: #555;
 }
 
 @media (max-width: 768px) {
