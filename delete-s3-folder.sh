@@ -152,17 +152,25 @@ fi
 # Collect all keys via paginated listing
 ALL_KEYS=()
 token=""
+PAGE=0
 while true; do
+    PAGE=$((PAGE + 1))
     args=(--bucket "$BUCKET" --prefix "$FULL_FOLDER_PATH" --endpoint-url "$ENDPOINT_URL" --region auto --output json --no-cli-pager)
     [[ -n "$token" ]] && args+=(--starting-token "$token")
     resp=$(aws s3api list-objects-v2 "${args[@]}")
     keys=$(echo "$resp" | jq -r '.Contents[]?.Key // empty')
+    page_count=0
     while IFS= read -r key; do
-        [[ -n "$key" ]] && ALL_KEYS+=("$key")
+        if [[ -n "$key" ]]; then
+            ALL_KEYS+=("$key")
+            page_count=$((page_count + 1))
+        fi
     done <<< "$keys"
+    echo -ne "\r${BLUE}[INFO]${NC} Listing... page $PAGE, ${#ALL_KEYS[@]} objects found so far"
     [[ "$(echo "$resp" | jq -r '.IsTruncated')" != "true" ]] && break
     token=$(echo "$resp" | jq -r '.NextContinuationToken')
 done
+echo ""
 
 TOTAL=${#ALL_KEYS[@]}
 
@@ -190,8 +198,14 @@ BATCH_SIZE=1000
 DELETED=0
 ERRORS=0
 
+BATCH_NUM=0
+TOTAL_BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
 for (( i=0; i<TOTAL; i+=BATCH_SIZE )); do
+    BATCH_NUM=$((BATCH_NUM + 1))
     batch=("${ALL_KEYS[@]:$i:$BATCH_SIZE}")
+    batch_end=$((i + ${#batch[@]}))
+    print_status "Batch $BATCH_NUM/$TOTAL_BATCHES — deleting objects $((i+1))–$batch_end of $TOTAL ..."
+
     objects_json=$(printf '%s\n' "${batch[@]}" | jq -Rn '[inputs | {Key: .}]')
     delete_payload=$(jq -n --argjson objs "$objects_json" '{Objects: $objs, Quiet: true}')
 
@@ -213,6 +227,7 @@ for (( i=0; i<TOTAL; i+=BATCH_SIZE )); do
     else
         DELETED=$((DELETED + ${#batch[@]}))
     fi
+    print_status "Progress: $DELETED/$TOTAL deleted so far"
 done
 
 echo ""
