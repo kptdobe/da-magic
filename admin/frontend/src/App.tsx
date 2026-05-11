@@ -69,6 +69,7 @@ function App() {
   const [selectedVersionPath, setSelectedVersionPath] = useState<string | null>(null);
   const [urlHistory, setUrlHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [currentDocPath, setCurrentDocPath] = useState<string | null>(null);
 
   // Load document path and URL history from localStorage on component mount
   useEffect(() => {
@@ -195,7 +196,8 @@ function App() {
 
     // Extract the actual document path from various URL formats
     const extractedPath = extractDocumentPath(documentPath);
-    
+    setCurrentDocPath(extractedPath);
+
     if (!extractedPath) {
       setError('Invalid document path format');
       return;
@@ -257,6 +259,37 @@ function App() {
       setSelectedVersionPath(versionPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to preview version');
+    }
+  };
+
+  const handleSaveDocument = async (content: string) => {
+    if (!currentDocPath) return;
+    const response = await fetch(`/api/document/${encodeURIComponent(currentDocPath)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || 'Save failed');
+    const docResponse = await fetch(`/api/document/${encodeURIComponent(currentDocPath)}`);
+    const docResult = await docResponse.json();
+    if (docResult.success) setDocumentData(docResult);
+  };
+
+  const handleSaveAuditFile = async (key: string, content: string) => {
+    const response = await fetch(`/api/auditfile/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    const result = await response.json();
+    if (!result.success) throw new Error(result.error || 'Save failed');
+    if (!currentDocPath) return;
+    const versionsResponse = await fetch(`/api/versions/${encodeURIComponent(currentDocPath)}`);
+    const versionsResult = await versionsResponse.json();
+    if (versionsResult.success) {
+      setVersions(versionsResult.versions);
+      setAuditFiles(versionsResult.auditFiles || []);
     }
   };
 
@@ -346,7 +379,7 @@ function App() {
         {documentData && (
           <div className="document-section">
             <h2>Document</h2>
-            <DocumentViewer document={documentData} />
+            <DocumentViewer document={documentData} onSaveContent={handleSaveDocument} />
           </div>
         )}
 
@@ -362,6 +395,7 @@ function App() {
                   auditFiles={auditFiles}
                   onVersionPreview={handleVersionPreview}
                   selectedVersionPath={selectedVersionPath}
+                  onSaveAuditFile={handleSaveAuditFile}
                 />
               )}
             </div>

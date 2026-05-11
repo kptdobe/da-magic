@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import EditModal from './EditModal';
 
 interface DocumentData {
   metadata: {
@@ -44,12 +45,14 @@ interface DocumentData {
 
 interface DocumentViewerProps {
   document: DocumentData;
-  versionPath?: string; // Optional version path for display
+  versionPath?: string;
+  onSaveContent?: (content: string) => Promise<void>;
 }
 
-const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }) => {
+const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath, onSaveContent }) => {
   const { metadata, content, isTextContent, contentType, textAnalysis } = document;
   const [indentHtml, setIndentHtml] = useState(true);
+  const [editOpen, setEditOpen] = useState(false);
 
   // HTML formatting function
   const formatHtml = (html: string): string => {
@@ -430,8 +433,21 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, versionPath }
       </div>
 
       <div className="content-section">
-        <h3>Content</h3>
+        <div className="content-section-header">
+          <h3>Content</h3>
+          {isTextContent && onSaveContent && (
+            <button className="edit-icon-btn" onClick={() => setEditOpen(true)} title="Edit content">✏️</button>
+          )}
+        </div>
         {renderContent()}
+        {editOpen && (
+          <EditModal
+            title="Edit Content"
+            initialContent={content}
+            onSave={onSaveContent!}
+            onClose={() => setEditOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

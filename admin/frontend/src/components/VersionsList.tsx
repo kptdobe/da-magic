@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import EditModal from './EditModal';
 
 interface Version {
   key: string;
@@ -23,6 +24,7 @@ interface VersionsListProps {
   auditFiles: AuditFile[];
   onVersionPreview: (versionPath: string) => void;
   selectedVersionPath?: string | null;
+  onSaveAuditFile?: (key: string, content: string) => Promise<void>;
 }
 
 interface VersionTableProps {
@@ -37,7 +39,7 @@ const VersionTable: React.FC<VersionTableProps> = ({ versions, onVersionPreview,
       <div className="version-header-filename">Filename</div>
       <div className="version-header-label">Label</div>
       <div className="version-header-size">Size</div>
-      <div className="version-header-date">Last Modified</div>
+      <div className="version-header-date">Timestamp</div>
       <div className="version-header-actions">Actions</div>
     </div>
     {versions.map((version) => {
@@ -55,7 +57,9 @@ const VersionTable: React.FC<VersionTableProps> = ({ versions, onVersionPreview,
           </div>
           <div className="version-size">{version.sizeFormatted}</div>
           <div className="version-date">
-            {new Date(version.lastModified).toLocaleString()}
+            {version.metadata.timestamp
+              ? new Date(parseInt(version.metadata.timestamp, 10)).toLocaleString()
+              : new Date(version.lastModified).toLocaleString()}
           </div>
           <div className="version-actions">
             <button onClick={() => onVersionPreview(version.key)} className="preview-button">
@@ -97,11 +101,19 @@ const countNewFormat = (files: AuditFile[]) => {
   return { versions, audit };
 };
 
-const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVersionPreview, selectedVersionPath }) => {
-  const newVersions = versions.filter(v => v.location === 'new');
-  const legacyVersions = versions.filter(v => v.location === 'legacy');
+const byTimestamp = (a: Version, b: Version) => {
+  const ts = (v: Version) => v.metadata.timestamp
+    ? parseInt(v.metadata.timestamp, 10)
+    : new Date(v.lastModified).getTime();
+  return ts(b) - ts(a);
+};
+
+const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVersionPreview, selectedVersionPath, onSaveAuditFile }) => {
+  const newVersions = versions.filter(v => v.location === 'new').sort(byTimestamp);
+  const legacyVersions = versions.filter(v => v.location === 'legacy').sort(byTimestamp);
   const [newCollapsed, setNewCollapsed] = useState(false);
   const [legacyCollapsed, setLegacyCollapsed] = useState(false);
+  const [editingAuditFile, setEditingAuditFile] = useState<AuditFile | null>(null);
 
   // audit.txt first, then archived files newest-first
   const sortedAuditFiles = [...auditFiles].sort((a, b) => {
@@ -149,7 +161,16 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVer
             <>
               {sortedAuditFiles.map((auditFile) => (
                 <div key={auditFile.key} className="audit-section">
-                  <div className="audit-title">{auditFile.filename}</div>
+                  <div className="audit-title">
+                    {auditFile.filename}
+                    {onSaveAuditFile && (
+                      <button
+                        className="edit-icon-btn"
+                        onClick={() => setEditingAuditFile(auditFile)}
+                        title="Edit audit file"
+                      >✏️</button>
+                    )}
+                  </div>
                   <div className="audit-content">
                     {auditFile.content.split('\n').filter(l => l.trim()).reverse().map((line, i) => {
                       const [ts, users = '', path = '', label = '', versionId = ''] = line.split('\t');
@@ -199,6 +220,14 @@ const VersionsList: React.FC<VersionsListProps> = ({ versions, auditFiles, onVer
             />
           )}
         </div>
+      )}
+      {editingAuditFile && onSaveAuditFile && (
+        <EditModal
+          title={`Edit ${editingAuditFile.filename}`}
+          initialContent={editingAuditFile.content}
+          onSave={(newContent) => onSaveAuditFile(editingAuditFile.key, newContent)}
+          onClose={() => setEditingAuditFile(null)}
+        />
       )}
     </div>
   );

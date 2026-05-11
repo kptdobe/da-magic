@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { S3Client, HeadObjectCommand, GetObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { S3Client, HeadObjectCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand } = require('@aws-sdk/client-s3');
 const path = require('path');
 const fs = require('fs');
 
@@ -48,6 +48,7 @@ const s3Client = new S3Client({
 });
 
 const BUCKET_NAME = 'aem-content';
+const BACKUP_BUCKET_NAME = 'aem-content-backup';
 
 // Helper function to normalize document path
 const normalizePath = (documentPath) => {
@@ -76,11 +77,11 @@ const formatFileSize = (bytes) => {
 };
 
 // Helper function to paginate all S3 objects under a prefix
-const listAllObjects = async (prefix) => {
+const listAllObjects = async (prefix, bucket = BUCKET_NAME) => {
   const objects = [];
   let continuationToken;
   do {
-    const params = { Bucket: BUCKET_NAME, Prefix: prefix };
+    const params = { Bucket: bucket, Prefix: prefix };
     if (continuationToken) params.ContinuationToken = continuationToken;
     const result = await s3Client.send(new ListObjectsV2Command(params));
     if (result.Contents) objects.push(...result.Contents);
@@ -88,6 +89,9 @@ const listAllObjects = async (prefix) => {
   } while (continuationToken);
   return objects;
 };
+
+// Legacy version paths live under {org}/.da-versions/ (second segment is .da-versions)
+const getBucketForKey = (key) => (key.split('/')[1] === '.da-versions' ? BACKUP_BUCKET_NAME : BUCKET_NAME);
 
 // Helper function to convert stream to buffer
 const streamToBuffer = async (stream) => {
@@ -313,9 +317,9 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     const legacyVersionsPath = `${rootPath}/.da-versions/${id}/`;
     const newVersionsPath = `${repoPath}/.da-versions/${id}/`;
 
-    // List both locations in parallel (fully paginated)
+    // List both locations in parallel (fully paginated); legacy lives in the backup bucket
     const [legacyResult, newResult] = await Promise.allSettled([
-      listAllObjects(legacyVersionsPath),
+      listAllObjects(legacyVersionsPath, BACKUP_BUCKET_NAME),
       listAllObjects(newVersionsPath)
     ]);
 
@@ -365,7 +369,7 @@ app.get('/api/versions/:path(*)', async (req, res) => {
     // Get metadata for all versions in parallel
     const metadataPromises = allObjects.map(async ({ obj, location }) => {
       try {
-        const headCmd = new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: obj.Key });
+        const headCmd = new HeadObjectCommand({ Bucket: getBucketForKey(obj.Key), Key: obj.Key });
         const meta = await s3Client.send(headCmd);
         return {
           key: obj.Key,
@@ -396,8 +400,11 @@ app.get('/api/versions/:path(*)', async (req, res) => {
 
     const versionsWithMetadata = await Promise.all(metadataPromises);
 
-    // Sort by date, newest first
-    const formattedVersions = versionsWithMetadata.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+    // Sort by snapshot timestamp metadata when available, fall back to S3 LastModified
+    const snapshotDate = (v) => v.metadata?.timestamp
+      ? new Date(parseInt(v.metadata.timestamp, 10))
+      : new Date(v.lastModified);
+    const formattedVersions = versionsWithMetadata.sort((a, b) => snapshotDate(b) - snapshotDate(a));
 
     res.json({
       success: true,
@@ -422,18 +429,19 @@ app.get('/api/version/:path(*)', async (req, res) => {
   try {
     const versionPath = req.params.path;
     const originalContentType = req.query.originalContentType;
-    
+    const versionBucket = getBucketForKey(versionPath);
+
     // Get version metadata
     const headCommand = new HeadObjectCommand({
-      Bucket: BUCKET_NAME,
+      Bucket: versionBucket,
       Key: versionPath
     });
-    
+
     const metadata = await s3Client.send(headCommand);
-    
+
     // Get version content
     const getCommand = new GetObjectCommand({
-      Bucket: BUCKET_NAME,
+      Bucket: versionBucket,
       Key: versionPath
     });
     
@@ -509,6 +517,51 @@ app.get('/api/version/:path(*)', async (req, res) => {
       error: 'Version not found or error occurred',
       details: error.message
     });
+  }
+});
+
+// PUT /api/document/:path(*) — replace document content, preserve all S3 metadata
+app.put('/api/document/:path(*)', express.text({ type: '*/*', limit: '10mb' }), async (req, res) => {
+  try {
+    const documentPath = normalizePath(req.params.path);
+    const head = await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: documentPath }));
+    await s3Client.send(new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: documentPath,
+      Body: req.body,
+      ContentType: head.ContentType,
+      Metadata: head.Metadata,
+      ...(head.ContentEncoding && { ContentEncoding: head.ContentEncoding }),
+      ...(head.ContentLanguage && { ContentLanguage: head.ContentLanguage }),
+      ...(head.CacheControl && { CacheControl: head.CacheControl }),
+    }));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating document:', error);
+    res.status(500).json({ success: false, error: 'Error updating document', details: error.message });
+  }
+});
+
+// PUT /api/auditfile/:key(*) — replace audit file content, preserve all S3 metadata
+app.put('/api/auditfile/:key(*)', express.text({ type: '*/*', limit: '10mb' }), async (req, res) => {
+  try {
+    const key = req.params.key;
+    const bucket = getBucketForKey(key);
+    const head = await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    await s3Client.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: req.body,
+      ContentType: head.ContentType,
+      Metadata: head.Metadata,
+      ...(head.ContentEncoding && { ContentEncoding: head.ContentEncoding }),
+      ...(head.ContentLanguage && { ContentLanguage: head.ContentLanguage }),
+      ...(head.CacheControl && { CacheControl: head.CacheControl }),
+    }));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating audit file:', error);
+    res.status(500).json({ success: false, error: 'Error updating audit file', details: error.message });
   }
 });
 
